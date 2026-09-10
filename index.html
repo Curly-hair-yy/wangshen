@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>网申资料库</title>
+<style>
+  :root{
+    --ink:#16283b;
+    --ink-soft:#4c6580;
+    --ink-faint:#8397ad;
+    --paper:#edf1f0;
+    --surface:#ffffff;
+    --surface-alt:#f4f6f5;
+    --line:#d9e0df;
+    --line-soft:#e6ebea;
+    --accent:#a9782f;
+    --accent-dark:#7a5720;
+    --accent-bg:#f4ead8;
+    --good:#3c7a63;
+    --good-bg:#e4f0ec;
+    --danger:#a5402b;
+    --danger-bg:#f8e9e5;
+    --radius:7px;
+    --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:var(--font);
+    background:var(--paper);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit;cursor:pointer;}
+  input,textarea{font-family:inherit;}
+
+  /* ---------- Lock screen ---------- */
+  #lockScreen{
+    position:fixed;inset:0;
+    background:linear-gradient(180deg,#16283b 0%,#1f3b56 100%);
+    display:flex;align-items:center;justify-content:center;
+    z-index:100;
+    padding:20px;
+  }
+  #lockScreen.hidden{display:none;}
+  .lock-card{
+    background:var(--surface);
+    border-radius:10px;
+    padding:34px 30px;
+    width:100%;max-width:320px;
+    box-shadow:0 20px 50px rgba(0,0,0,.35);
+    text-align:center;
+  }
+  .lock-card .mark{
+    width:38px;height:38px;border-radius:8px;
+    background:var(--accent-bg);color:var(--accent-dark);
+    display:flex;align-items:center;justify-content:center;
+    margin:0 auto 16px;font-weight:700;font-size:16px;
+  }
+  .lock-card h1{font-size:16px;margin:0 0 6px;color:var(--ink);}
+  .lock-card p{font-size:12.5px;color:var(--ink-faint);margin:0 0 20px;}
+  .lock-card input{
+    width:100%;padding:11px 12px;border:1px solid var(--line);
+    border-radius:6px;font-size:14px;text-align:center;letter-spacing:1px;
+    outline:none;
+  }
+  .lock-card input:focus{border-color:var(--accent);}
+  .lock-card button{
+    width:100%;margin-top:12px;padding:11px;border:none;border-radius:6px;
+    background:var(--ink);color:#fff;font-size:14px;font-weight:600;
+  }
+  .lock-card button:hover{background:#0f1e2e;}
+  .lock-error{color:var(--danger);font-size:12px;height:16px;margin-top:10px;}
+
+  /* ---------- App shell ---------- */
+  #app{display:none;min-height:100vh;}
+  #app.visible{display:block;}
+
+  .topbar{
+    position:sticky;top:0;z-index:20;
+    background:var(--ink);
+    color:#fff;
+    display:flex;align-items:center;gap:12px;
+    padding:0 16px;height:54px;
+  }
+  .topbar .title{
+    font-size:14px;font-weight:700;white-space:nowrap;
+    letter-spacing:.2px;
+    color:#f2ede1;
+  }
+  .topbar .search-wrap{flex:1;max-width:420px;position:relative;}
+  .topbar input[type=search]{
+    width:100%;padding:8px 12px 8px 30px;border-radius:6px;border:1px solid #2c4360;
+    background:#1f3348;color:#fff;font-size:13px;outline:none;
+  }
+  .topbar input[type=search]::placeholder{color:#8fa4bb;}
+  .topbar input[type=search]:focus{border-color:var(--accent);}
+  .search-icon{
+    position:absolute;left:10px;top:50%;transform:translateY(-50%);
+    color:#8fa4bb;font-size:12px;pointer-events:none;
+  }
+  .topbar .spacer{flex:1;}
+  .tb-btn{
+    background:transparent;border:1px solid #2c4360;color:#dbe6f0;
+    padding:7px 11px;border-radius:6px;font-size:12.5px;font-weight:500;
+    white-space:nowrap;
+    display:flex;align-items:center;gap:5px;
+  }
+  .tb-btn:hover{background:#1f3348;}
+  .tb-btn.active{background:var(--accent);border-color:var(--accent);color:#26190a;font-weight:700;}
+  .tb-btn.icon-only{padding:7px 9px;}
+
+  .layout{display:flex;max-width:1180px;margin:0 auto;align-items:flex-start;}
+  .sidebar{
+    width:196px;flex:0 0 196px;
+    position:sticky;top:54px;
+    max-height:calc(100vh - 54px);
+    overflow-y:auto;
+    padding:18px 10px 40px 16px;
+  }
+  .sidebar a{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:6px;
+    text-decoration:none;color:var(--ink-soft);
+    font-size:12.5px;padding:7px 10px;border-radius:6px;margin-bottom:1px;
+  }
+  .sidebar a:hover{background:var(--surface-alt);color:var(--ink);}
+  .sidebar a.active{background:var(--surface);color:var(--ink);font-weight:700;box-shadow:inset 3px 0 0 var(--accent);}
+  .sidebar .count{font-size:10.5px;color:var(--ink-faint);font-weight:400;}
+
+  .content{flex:1;min-width:0;padding:20px 20px 80px;}
+
+  .empty-hint{
+    text-align:center;color:var(--ink-faint);font-size:13px;padding:60px 0;
+  }
+
+  /* category section */
+  .cat-section{margin-bottom:30px;}
+  .cat-section.hidden-by-search{display:none;}
+  .cat-head{
+    display:flex;align-items:center;gap:10px;margin-bottom:12px;
+    padding-left:10px;border-left:4px solid var(--accent);
+  }
+  .cat-head h2{font-size:15px;margin:0;font-weight:700;color:var(--ink);}
+  .cat-head .cat-sub{font-size:11px;color:var(--ink-faint);}
+
+  .cards-grid{display:flex;flex-direction:column;gap:12px;}
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+  .card.hidden-by-search{display:none;}
+  .card-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:9px 12px;border-bottom:1px solid var(--line-soft);
+    background:var(--surface-alt);
+    gap:8px;
+  }
+  .card-head h3{font-size:13px;margin:0;font-weight:700;color:var(--ink);}
+  .card-head input.title-edit{
+    display:none;
+    font-size:13px;font-weight:700;color:var(--ink);border:1px solid transparent;
+    background:transparent;padding:3px 5px;border-radius:4px;flex:1;min-width:0;
+  }
+  body.edit-mode .card-head h3.card-title-text{display:none;}
+  body.edit-mode .card-head input.title-edit{display:block;border-color:var(--line);background:#fff;}
+  .card-head .card-actions{display:none;gap:6px;flex:0 0 auto;}
+  body.edit-mode .card-head .card-actions{display:flex;}
+  .icon-btn{
+    border:none;background:transparent;color:var(--ink-faint);
+    width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;
+    font-size:13px;line-height:1;
+  }
+  .icon-btn:hover{background:var(--line-soft);color:var(--danger);}
+
+  .fields{
+    display:flex;flex-wrap:wrap;gap:8px 8px;
+    padding:10px 12px 12px;
+  }
+  .field{
+    background:var(--surface-alt);
+    border:1px solid var(--line-soft);
+    border-radius:6px;
+    padding:6px 9px 7px;
+    min-width:140px;
+    flex:1 1 150px;
+  }
+  .field.long{flex-basis:100%;}
+  .field .f-label{
+    font-size:10.5px;color:var(--ink-faint);font-weight:600;margin-bottom:2px;
+  }
+  .field .f-value{
+    font-size:13px;color:var(--ink);line-height:1.5;
+    word-break:break-word;white-space:pre-wrap;
+    cursor:pointer;border-radius:4px;padding:1px 3px;margin:-1px -3px;
+  }
+  .field .f-value:hover{background:var(--accent-bg);}
+  .field .f-value.copied{background:var(--good-bg);}
+  .field input.f-input, .field textarea.f-input{
+    display:none;width:100%;border:1px solid var(--line);border-radius:4px;
+    padding:5px 6px;font-size:13px;color:var(--ink);background:#fff;outline:none;resize:vertical;
+    line-height:1.5;
+  }
+  .field input.f-input:focus, .field textarea.f-input:focus{border-color:var(--accent);}
+  body.edit-mode .field .f-value{display:none;}
+  body.edit-mode .field input.f-input, body.edit-mode .field textarea.f-input{display:block;}
+  .field.deleting{display:none;}
+  .field .f-del{
+    display:none;float:right;border:none;background:transparent;color:var(--ink-faint);
+    font-size:12px;cursor:pointer;padding:0 0 0 6px;
+  }
+  body.edit-mode .field .f-del{display:inline;}
+  .field .f-del:hover{color:var(--danger);}
+
+  .add-row{padding:0 12px 12px;}
+  .add-field-btn, .add-card-btn{
+    display:none;
+    border:1px dashed var(--line);background:transparent;color:var(--ink-soft);
+    font-size:12px;padding:6px 12px;border-radius:6px;
+  }
+  body.edit-mode .add-field-btn, body.edit-mode .add-card-btn{display:inline-block;}
+  .add-field-btn:hover, .add-card-btn:hover{border-color:var(--accent);color:var(--accent-dark);}
+  .add-card-btn{margin-top:2px;}
+
+  .mini-form{
+    display:none;gap:8px;padding:10px 12px;background:var(--surface-alt);
+    border-top:1px solid var(--line-soft);
+  }
+  .mini-form.open{display:flex;flex-wrap:wrap;align-items:center;}
+  .mini-form input[type=text]{
+    flex:1;min-width:120px;padding:7px 9px;border:1px solid var(--line);border-radius:5px;font-size:13px;
+  }
+  .mini-form select{padding:7px 8px;border:1px solid var(--line);border-radius:5px;font-size:12.5px;}
+  .mini-form .mf-btn{
+    border:none;border-radius:5px;padding:7px 12px;font-size:12.5px;font-weight:600;
+  }
+  .mini-form .mf-save{background:var(--ink);color:#fff;}
+  .mini-form .mf-cancel{background:transparent;color:var(--ink-faint);}
+
+  /* toast */
+  #toastWrap{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    z-index:200;display:flex;flex-direction:column;gap:6px;align-items:center;
+  }
+  .toast{
+    background:var(--ink);color:#fff;font-size:12.5px;padding:8px 16px;border-radius:20px;
+    box-shadow:0 6px 18px rgba(0,0,0,.2);opacity:0;transform:translateY(6px);
+    transition:opacity .18s, transform .18s;
+  }
+  .toast.show{opacity:1;transform:translateY(0);}
+
+  /* log drawer */
+  #logDrawer{
+    position:fixed;top:0;right:-420px;width:400px;max-width:92vw;height:100vh;
+    background:var(--surface);box-shadow:-8px 0 30px rgba(0,0,0,.18);
+    z-index:60;transition:right .22s ease;display:flex;flex-direction:column;
+  }
+  #logDrawer.open{right:0;}
+  #logOverlay{
+    position:fixed;inset:0;background:rgba(10,20,30,.35);z-index:55;display:none;
+  }
+  #logOverlay.open{display:block;}
+  .log-head{
+    padding:14px 16px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .log-head h2{font-size:14px;margin:0;}
+  .log-head button{border:none;background:transparent;font-size:18px;color:var(--ink-faint);}
+  .log-list{flex:1;overflow-y:auto;padding:8px 14px;}
+  .log-item{padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;}
+  .log-item .lt-top{display:flex;justify-content:space-between;color:var(--ink-faint);font-size:11px;margin-bottom:4px;}
+  .log-item .lt-path{color:var(--ink-soft);font-weight:600;}
+  .log-item .lt-diff{color:var(--ink);line-height:1.5;}
+  .log-item .lt-old{color:var(--danger);text-decoration:line-through;opacity:.7;}
+  .log-item .lt-new{color:var(--good);font-weight:600;}
+  .log-item .lt-rollback{
+    margin-top:6px;border:1px solid var(--line);background:transparent;color:var(--ink-soft);
+    font-size:11px;padding:4px 9px;border-radius:5px;
+  }
+  .log-item .lt-rollback:hover{border-color:var(--accent);color:var(--accent-dark);}
+  .log-empty{color:var(--ink-faint);font-size:12.5px;text-align:center;padding:40px 0;}
+
+  /* responsive */
+  @media (max-width: 880px){
+    .layout{flex-direction:column;}
+    .sidebar{
+      position:sticky;top:54px;width:100%;flex:none;max-height:none;
+      display:flex;overflow-x:auto;gap:4px;padding:10px 12px;
+      background:var(--paper);border-bottom:1px solid var(--line);
+    }
+    .sidebar a{white-space:nowrap;margin-bottom:0;}
+    .content{padding:16px 14px 80px;}
+    .topbar .title{display:none;}
+    #logDrawer{width:100%;max-width:100%;}
+  }
+</style>
+</head>
+<body>
+
+  <div id="lockScreen">
+    <div class="lock-card">
+      <div class="mark">锁</div>
+      <h1>网申资料库</h1>
+      <p>请输入访问密码</p>
+      <input id="pwInput" type="password" placeholder="密码" autocomplete="off">
+      <button id="pwSubmit">进入</button>
+      <div class="lock-error" id="pwError"></div>
+    </div>
+  </div>
+
+  <div id="app">
+    <div class="topbar">
+      <div class="title">网申资料库</div>
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="search" id="searchInput" placeholder="搜索字段、卡片…">
+      </div>
+      <div class="spacer"></div>
+      <button class="tb-btn icon-only" id="refreshBtn" title="重新加载">⟳</button>
+      <button class="tb-btn" id="logBtn">修改记录</button>
+      <button class="tb-btn" id="editToggle">编辑模式</button>
+      <button class="tb-btn icon-only" id="lockBtn" title="退出锁定">🔒</button>
+    </div>
+    <div class="layout">
+      <nav class="sidebar" id="sidebar"></nav>
+      <main class="content" id="content">
+        <div class="empty-hint">加载中…</div>
+      </main>
+    </div>
+  </div>
+
+  <div id="toastWrap"></div>
+
+  <div id="logOverlay"></div>
+  <aside id="logDrawer">
+    <div class="log-head">
+      <h2>修改记录</h2>
+      <button id="logClose">✕</button>
+    </div>
+    <div class="log-list" id="logList"><div class="log-empty">加载中…</div></div>
+  </aside>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- 配置 ----------
+  const SUPABASE_URL = "https://xbmnadxitkzsofgizqew.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_QNCf-to238GBDK0-GbLxXg_6bOr9a8t";
+  const PASSWORD_HASH = "78e4cfd82c70d49cfffc2a7b3d6d738d392370cd9c955fd81657863081584df4";
+  const LOCK_STORAGE_KEY = "zlk_unlocked";
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ---------- 小工具 ----------
+  function el(tag, attrs, ...children){
+    const e = document.createElement(tag);
+    attrs = attrs || {};
+    for(const k in attrs){
+      const v = attrs[k];
+      if(k === "class") e.className = v;
+      else if(k === "text") e.textContent = v;
+      else if(k.indexOf("on") === 0 && typeof v === "function") e.addEventListener(k.slice(2), v);
+      else if(v !== null && v !== undefined) e.setAttribute(k, v);
+    }
+    children.flat().forEach(c=>{
+      if(c === null || c === undefined) return;
+      if(typeof c === "string") e.appendChild(document.createTextNode(c));
+      else e.appendChild(c);
+    });
+    return e;
+  }
+
+  async function sha256Hex(text){
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  }
+
+  function showToast(msg){
+    const wrap = document.getElementById("toastWrap");
+    const t = el("div", {class:"toast"}, msg);
+    wrap.appendChild(t);
+    requestAnimationFrame(()=> t.classList.add("show"));
+    setTimeout(()=>{
+      t.classList.remove("show");
+      setTimeout(()=> t.remove(), 250);
+    }, 1600);
+  }
+
+  function fmtTime(iso){
+    const d = new Date(iso);
+    const p = n => String(n).padStart(2,"0");
+    return `${d.getMonth()+1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  // ---------- 密码门禁 ----------
+  const lockScreen = document.getElementById("lockScreen");
+  const app = document.getElementById("app");
+  const pwInput = document.getElementById("pwInput");
+  const pwError = document.getElementById("pwError");
+
+  async function tryUnlock(pw){
+    const hash = await sha256Hex(pw);
+    if(hash === PASSWORD_HASH){
+      localStorage.setItem(LOCK_STORAGE_KEY, "1");
+      lockScreen.classList.add("hidden");
+      app.classList.add("visible");
+      boot();
+    } else {
+      pwError.textContent = "密码不对，再试试";
+      pwInput.value = "";
+      pwInput.focus();
+    }
+  }
+  document.getElementById("pwSubmit").addEventListener("click", ()=> tryUnlock(pwInput.value));
+  pwInput.addEventListener("keydown", e=>{ if(e.key === "Enter") tryUnlock(pwInput.value); });
+  document.getElementById("lockBtn").addEventListener("click", ()=>{
+    localStorage.removeItem(LOCK_STORAGE_KEY);
+    location.reload();
+  });
+
+  if(localStorage.getItem(LOCK_STORAGE_KEY) === "1"){
+    lockScreen.classList.add("hidden");
+    app.classList.add("visible");
+    boot();
+  }
+
+  // ---------- 数据状态 ----------
+  let STATE = { categories: [], editMode: false };
+  const saveTimers = {}; // fieldId -> timeout
+
+  async function fetchAll(){
+    const [catsRes, cardsRes, fieldsRes] = await Promise.all([
+      sb.from("zlk_categories").select("*").order("order_index"),
+      sb.from("zlk_cards").select("*").order("order_index"),
+      sb.from("zlk_fields").select("*").order("order_index"),
+    ]);
+    if(catsRes.error || cardsRes.error || fieldsRes.error){
+      console.error(catsRes.error || cardsRes.error || fieldsRes.error);
+      showToast("加载失败，请检查网络后点右上角刷新");
+      return null;
+    }
+    const cards = cardsRes.data.map(c => ({...c, fields: fieldsRes.data.filter(f=>f.card_id===c.id)}));
+    const cats = catsRes.data.map(cat => ({...cat, cards: cards.filter(c=>c.category_id===cat.id)}));
+    return cats;
+  }
+
+  async function loadAndRender(){
+    const cats = await fetchAll();
+    if(cats){
+      STATE.categories = cats;
+      render();
+    }
+  }
+
+  function boot(){
+    loadAndRender();
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.visibilityState === "visible") loadAndRender();
+    });
+  }
+
+  // ---------- 渲染 ----------
+  const sidebarEl = document.getElementById("sidebar");
+  const contentEl = document.getElementById("content");
+
+  function render(){
+    sidebarEl.innerHTML = "";
+    contentEl.innerHTML = "";
+    if(!STATE.categories.length){
+      contentEl.appendChild(el("div",{class:"empty-hint"},"还没有数据"));
+      return;
+    }
+    STATE.categories.forEach(cat=>{
+      const anchorId = "cat-" + cat.id;
+      sidebarEl.appendChild(
+        el("a", {href:"#"+anchorId, "data-cat":anchorId, onclick:(e)=>{
+          e.preventDefault();
+          document.getElementById(anchorId).scrollIntoView({behavior:"smooth", block:"start"});
+        }},
+          el("span",{text:cat.name}),
+          el("span",{class:"count", text:String(cat.cards.length)})
+        )
+      );
+
+      const section = el("section",{class:"cat-section", id:anchorId, "data-cat-name":cat.name});
+      section.appendChild(
+        el("div",{class:"cat-head"},
+          el("h2",{text:cat.name}),
+          el("span",{class:"cat-sub", text:`${cat.cards.length} 张卡片`})
+        )
+      );
+      const grid = el("div",{class:"cards-grid"});
+      cat.cards.forEach(card => grid.appendChild(renderCard(cat, card)));
+      section.appendChild(grid);
+      section.appendChild(
+        el("button",{class:"add-card-btn", onclick:()=> openAddCardForm(cat, section)}, "＋ 添加卡片")
+      );
+      contentEl.appendChild(section);
+    });
+    applyEditModeClass();
+    setupScrollSpy();
+  }
+
+  function renderCard(cat, card){
+    const cardEl = el("div",{class:"card", "data-card-id":card.id, "data-card-title":card.title});
+
+    const titleInput = el("input",{class:"title-edit", type:"text", value:card.title});
+    titleInput.addEventListener("change", ()=> saveCardTitle(card, titleInput.value));
+
+    const head = el("div",{class:"card-head"},
+      el("h3",{class:"card-title-text", text:card.title}),
+      titleInput,
+      el("div",{class:"card-actions"},
+        el("button",{class:"icon-btn", title:"删除卡片", onclick:()=> deleteCard(cat, card, cardEl)}, "✕")
+      )
+    );
+    cardEl.appendChild(head);
+
+    const fieldsWrap = el("div",{class:"fields"});
+    card.fields.forEach(f => fieldsWrap.appendChild(renderField(cat, card, f)));
+    cardEl.appendChild(fieldsWrap);
+
+    cardEl.appendChild(
+      el("div",{class:"add-row"},
+        el("button",{class:"add-field-btn", onclick:()=> openAddFieldForm(cat, card, cardEl)}, "＋ 添加字段")
+      )
+    );
+    const mf = el("div",{class:"mini-form", "data-role":"add-field-form"});
+    cardEl.appendChild(mf);
+
+    return cardEl;
+  }
+
+  function renderField(cat, card, field){
+    const isLong = field.field_type === "long";
+    const wrap = el("div",{class:"field" + (isLong ? " long" : ""), "data-field-id":field.id});
+
+    const valueEl = el("div",{class:"f-value", tabindex:"0"}, field.value || "");
+    valueEl.addEventListener("click", ()=>{
+      if(STATE.editMode) return;
+      const text = valueEl.textContent;
+      if(!text) return;
+      navigator.clipboard.writeText(text).then(()=>{
+        valueEl.classList.add("copied");
+        setTimeout(()=> valueEl.classList.remove("copied"), 500);
+        showToast("已复制「" + field.label + "」");
+      }).catch(()=> showToast("复制失败，请手动选中"));
+    });
+
+    const inputEl = isLong
+      ? el("textarea",{class:"f-input", rows:"3"})
+      : el("input",{class:"f-input", type:"text"});
+    inputEl.value = field.value || "";
+    let originalValue = field.value || "";
+
+    function scheduleSave(){
+      clearTimeout(saveTimers[field.id]);
+      saveTimers[field.id] = setTimeout(async ()=>{
+        const newVal = inputEl.value;
+        if(newVal === originalValue) return;
+        const { error } = await sb.from("zlk_fields").update({value:newVal}).eq("id", field.id);
+        if(error){ showToast("保存失败"); console.error(error); return; }
+        await sb.from("zlk_edit_logs").insert({
+          field_id: field.id,
+          field_label_snapshot: field.label,
+          card_title_snapshot: card.title,
+          old_value: originalValue,
+          new_value: newVal,
+          action_type: "edit"
+        });
+        originalValue = newVal;
+        field.value = newVal;
+        valueEl.textContent = newVal;
+        showToast("已自动保存");
+      }, 800);
+    }
+    inputEl.addEventListener("input", scheduleSave);
+    inputEl.addEventListener("blur", ()=>{ clearTimeout(saveTimers[field.id]); scheduleSaveNow(); });
+    function scheduleSaveNow(){
+      const newVal = inputEl.value;
+      if(newVal === originalValue) return;
+      (async ()=>{
+        const { error } = await sb.from("zlk_fields").update({value:newVal}).eq("id", field.id);
+        if(error){ showToast("保存失败"); console.error(error); return; }
+        await sb.from("zlk_edit_logs").insert({
+          field_id: field.id,
+          field_label_snapshot: field.label,
+          card_title_snapshot: card.title,
+          old_value: originalValue,
+          new_value: newVal,
+          action_type: "edit"
+        });
+        originalValue = newVal;
+        field.value = newVal;
+        valueEl.textContent = newVal;
+        showToast("已自动保存");
+      })();
+    }
+
+    const delBtn = el("button",{class:"f-del", title:"删除字段", onclick: async ()=>{
+      if(!confirm(`删除字段「${field.label}」？`)) return;
+      await sb.from("zlk_edit_logs").insert({
+        field_id: field.id,
+        field_label_snapshot: field.label,
+        card_title_snapshot: card.title,
+        old_value: field.value || "",
+        new_value: null,
+        action_type: "delete"
+      });
+      const { error } = await sb.from("zlk_fields").delete().eq("id", field.id);
+      if(error){ showToast("删除失败"); console.error(error); return; }
+      wrap.remove();
+      showToast("已删除字段");
+    }}, "✕");
+
+    wrap.appendChild(el("div",{class:"f-label"}, field.label, delBtn));
+    wrap.appendChild(valueEl);
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+
+  function applyEditModeClass(){
+    document.body.classList.toggle("edit-mode", STATE.editMode);
+  }
+
+  // ---------- 添加卡片 / 字段 ----------
+  function openAddCardForm(cat, section){
+    let existing = section.querySelector(".mini-form[data-role=add-card-form]");
+    if(existing){ existing.classList.toggle("open"); return; }
+    const titleInput = el("input",{type:"text", placeholder:"卡片标题，例如「经历五」"});
+    const form = el("div",{class:"mini-form open", "data-role":"add-card-form"},
+      titleInput,
+      el("button",{class:"mf-btn mf-save", onclick: async ()=>{
+        const title = titleInput.value.trim();
+        if(!title) return;
+        const nextOrder = cat.cards.length + 1;
+        const { data, error } = await sb.from("zlk_cards")
+          .insert({category_id:cat.id, title, order_index:nextOrder})
+          .select().single();
+        if(error){ showToast("添加失败"); console.error(error); return; }
+        await sb.from("zlk_edit_logs").insert({
+          field_id: null, field_label_snapshot:"新建卡片",
+          card_title_snapshot: title, old_value:null, new_value:title, action_type:"create"
+        });
+        showToast("已添加卡片");
+        loadAndRender();
+      }}, "保存"),
+      el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消")
+    );
+    section.querySelector(".add-card-btn").insertAdjacentElement("beforebegin", form);
+  }
+
+  function openAddFieldForm(cat, card, cardEl){
+    const form = cardEl.querySelector(".mini-form[data-role=add-field-form]");
+    form.classList.toggle("open");
+    if(form.childElementCount) return;
+    const labelInput = el("input",{type:"text", placeholder:"字段名，例如「银行卡号」"});
+    const typeSelect = el("select",{},
+      el("option",{value:"short"}, "短字段（同行显示）"),
+      el("option",{value:"long"}, "长字段（独占一行）")
+    );
+    const valueInput = el("input",{type:"text", placeholder:"内容（可留空后填）"});
+    form.appendChild(labelInput);
+    form.appendChild(typeSelect);
+    form.appendChild(valueInput);
+    form.appendChild(el("button",{class:"mf-btn mf-save", onclick: async ()=>{
+      const label = labelInput.value.trim();
+      if(!label) return;
+      const nextOrder = card.fields.length + 1;
+      const { data, error } = await sb.from("zlk_fields")
+        .insert({card_id:card.id, label, value:valueInput.value, field_type:typeSelect.value, order_index:nextOrder})
+        .select().single();
+      if(error){ showToast("添加失败"); console.error(error); return; }
+      await sb.from("zlk_edit_logs").insert({
+        field_id: data.id, field_label_snapshot:label,
+        card_title_snapshot: card.title, old_value:null, new_value:valueInput.value, action_type:"create"
+      });
+      showToast("已添加字段");
+      loadAndRender();
+    }}, "保存"));
+    form.appendChild(el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消"));
+  }
+
+  async function saveCardTitle(card, newTitle){
+    newTitle = newTitle.trim();
+    if(!newTitle || newTitle === card.title) return;
+    const old = card.title;
+    const { error } = await sb.from("zlk_cards").update({title:newTitle}).eq("id", card.id);
+    if(error){ showToast("保存失败"); console.error(error); return; }
+    await sb.from("zlk_edit_logs").insert({
+      field_id:null, field_label_snapshot:"卡片标题",
+      card_title_snapshot:newTitle, old_value:old, new_value:newTitle, action_type:"edit"
+    });
+    card.title = newTitle;
+    showToast("已保存");
+  }
+
+  async function deleteCard(cat, card, cardEl){
+    if(!confirm(`确定删除卡片「${card.title}」吗？其中所有字段也会一并删除，此操作不可撤销。`)) return;
+    await sb.from("zlk_edit_logs").insert({
+      field_id:null, field_label_snapshot:"删除卡片",
+      card_title_snapshot:card.title, old_value:card.title, new_value:null, action_type:"delete"
+    });
+    const { error } = await sb.from("zlk_cards").delete().eq("id", card.id);
+    if(error){ showToast("删除失败"); console.error(error); return; }
+    cardEl.remove();
+    showToast("已删除卡片");
+  }
+
+  // ---------- 编辑模式 / 搜索 / 刷新 ----------
+  document.getElementById("editToggle").addEventListener("click", function(){
+    STATE.editMode = !STATE.editMode;
+    this.classList.toggle("active", STATE.editMode);
+    this.textContent = STATE.editMode ? "完成编辑" : "编辑模式";
+    applyEditModeClass();
+  });
+
+  document.getElementById("refreshBtn").addEventListener("click", ()=>{
+    loadAndRender();
+    showToast("已刷新");
+  });
+
+  document.getElementById("searchInput").addEventListener("input", function(){
+    const q = this.value.trim().toLowerCase();
+    document.querySelectorAll(".cat-section").forEach(section=>{
+      let anyVisible = false;
+      section.querySelectorAll(".card").forEach(cardEl=>{
+        const title = (cardEl.getAttribute("data-card-title")||"").toLowerCase();
+        let match = !q || title.includes(q);
+        if(!match){
+          cardEl.querySelectorAll(".field").forEach(f=>{
+            const label = (f.querySelector(".f-label").textContent||"").toLowerCase();
+            const val = (f.querySelector(".f-value").textContent||"").toLowerCase();
+            if(label.includes(q) || val.includes(q)) match = true;
+          });
+        }
+        cardEl.classList.toggle("hidden-by-search", !match);
+        if(match) anyVisible = true;
+      });
+      section.classList.toggle("hidden-by-search", !anyVisible);
+    });
+  });
+
+  // ---------- 侧边栏滚动高亮 ----------
+  function setupScrollSpy(){
+    const sections = Array.from(document.querySelectorAll(".cat-section"));
+    if(!sections.length) return;
+    const links = Array.from(sidebarEl.querySelectorAll("a"));
+    const spy = ()=>{
+      let currentId = sections[0].id;
+      const y = window.scrollY + 90;
+      sections.forEach(s=>{ if(s.offsetTop <= y) currentId = s.id; });
+      links.forEach(l=> l.classList.toggle("active", l.getAttribute("data-cat") === currentId));
+    };
+    window.removeEventListener("scroll", window._zlkSpy || (()=>{}));
+    window._zlkSpy = spy;
+    window.addEventListener("scroll", spy, {passive:true});
+    spy();
+  }
+
+  // ---------- 修改记录抽屉 ----------
+  const logDrawer = document.getElementById("logDrawer");
+  const logOverlay = document.getElementById("logOverlay");
+  const logList = document.getElementById("logList");
+
+  async function openLogDrawer(){
+    logDrawer.classList.add("open");
+    logOverlay.classList.add("open");
+    logList.innerHTML = "<div class='log-empty'>加载中…</div>";
+    const { data, error } = await sb.from("zlk_edit_logs")
+      .select("*").order("edited_at", {ascending:false}).limit(200);
+    if(error){ logList.innerHTML = "<div class='log-empty'>加载失败</div>"; return; }
+    if(!data.length){ logList.innerHTML = "<div class='log-empty'>还没有修改记录</div>"; return; }
+    logList.innerHTML = "";
+    data.forEach(log => logList.appendChild(renderLogItem(log)));
+  }
+  function closeLogDrawer(){
+    logDrawer.classList.remove("open");
+    logOverlay.classList.remove("open");
+  }
+  document.getElementById("logBtn").addEventListener("click", openLogDrawer);
+  document.getElementById("logClose").addEventListener("click", closeLogDrawer);
+  logOverlay.addEventListener("click", closeLogDrawer);
+
+  function actionLabel(t){
+    return {edit:"修改", create:"新建", delete:"删除", rollback:"回滚"}[t] || t;
+  }
+
+  function renderLogItem(log){
+    const canRollback = log.field_id && (log.action_type === "edit" || log.action_type === "rollback");
+    const item = el("div",{class:"log-item"},
+      el("div",{class:"lt-top"},
+        el("span",{text: fmtTime(log.edited_at) + " · " + actionLabel(log.action_type)}),
+      ),
+      el("div",{class:"lt-path", text:(log.card_title_snapshot||"") + " · " + (log.field_label_snapshot||"")}),
+      el("div",{class:"lt-diff"},
+        log.old_value ? el("span",{class:"lt-old"}, truncate(log.old_value)) : el("span",{},"（空）"),
+        " → ",
+        log.new_value ? el("span",{class:"lt-new"}, truncate(log.new_value)) : el("span",{},"（空）")
+      )
+    );
+    if(canRollback){
+      item.appendChild(
+        el("button",{class:"lt-rollback", onclick: async ()=>{
+          if(!confirm("回滚到这个版本吗？")) return;
+          const { data: curRows } = await sb.from("zlk_fields").select("*").eq("id", log.field_id).limit(1);
+          if(!curRows || !curRows.length){ showToast("该字段已被删除，无法回滚"); return; }
+          const cur = curRows[0];
+          const { error } = await sb.from("zlk_fields").update({value: log.old_value}).eq("id", log.field_id);
+          if(error){ showToast("回滚失败"); return; }
+          await sb.from("zlk_edit_logs").insert({
+            field_id: log.field_id,
+            field_label_snapshot: log.field_label_snapshot,
+            card_title_snapshot: log.card_title_snapshot,
+            old_value: cur.value,
+            new_value: log.old_value,
+            action_type: "rollback"
+          });
+          showToast("已回滚");
+          openLogDrawer();
+          loadAndRender();
+        }}, "回滚到这个版本")
+      );
+    }
+    return item;
+  }
+
+  function truncate(s){
+    s = String(s);
+    return s.length > 40 ? s.slice(0,40) + "…" : s;
+  }
+
+})();
+</script>
+</body>
+</html>
