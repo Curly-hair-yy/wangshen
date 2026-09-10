@@ -196,10 +196,11 @@
   .field .f-value{
     font-size:13px;color:var(--ink);line-height:1.5;
     word-break:break-word;white-space:pre-wrap;
-    cursor:pointer;border-radius:4px;padding:1px 3px;margin:-1px -3px;
+    border-radius:4px;padding:1px 3px;margin:-1px -3px;
   }
-  .field .f-value:hover{background:var(--accent-bg);}
-  .field .f-value.copied{background:var(--good-bg);}
+  body:not(.edit-mode) .field{cursor:pointer;}
+  body:not(.edit-mode) .field:hover{background:var(--accent-bg);}
+  .field.copied{background:var(--good-bg);}
   .field input.f-input, .field textarea.f-input{
     display:none;width:100%;border:1px solid var(--line);border-radius:4px;
     padding:5px 6px;font-size:13px;color:var(--ink);background:#fff;outline:none;resize:vertical;
@@ -269,7 +270,13 @@
     display:flex;align-items:center;justify-content:space-between;
   }
   .log-head h2{font-size:14px;margin:0;}
+  .log-head-actions{display:flex;align-items:center;gap:12px;}
   .log-head button{border:none;background:transparent;font-size:18px;color:var(--ink-faint);}
+  #logClearAll{
+    border:1px solid var(--line);background:transparent;color:var(--ink-soft);
+    font-size:11.5px;padding:5px 10px;border-radius:5px;font-weight:600;
+  }
+  #logClearAll:hover{border-color:var(--danger);color:var(--danger);}
   .log-list{flex:1;overflow-y:auto;padding:8px 14px;}
   .log-item{padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;}
   .log-item .lt-top{display:flex;justify-content:space-between;color:var(--ink-faint);font-size:11px;margin-bottom:4px;}
@@ -277,11 +284,20 @@
   .log-item .lt-diff{color:var(--ink);line-height:1.5;}
   .log-item .lt-old{color:var(--danger);text-decoration:line-through;opacity:.7;}
   .log-item .lt-new{color:var(--good);font-weight:600;}
+  .log-item .lt-actions{
+    margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  }
   .log-item .lt-rollback{
-    margin-top:6px;border:1px solid var(--line);background:transparent;color:var(--ink-soft);
+    border:1px solid var(--line);background:transparent;color:var(--ink-soft);
     font-size:11px;padding:4px 9px;border-radius:5px;
   }
   .log-item .lt-rollback:hover{border-color:var(--accent);color:var(--accent-dark);}
+  .log-item .lt-disabled{color:var(--ink-faint);font-size:11px;}
+  .log-item .lt-delete{
+    border:none;background:transparent;color:var(--ink-faint);
+    font-size:11px;padding:4px 6px;flex:0 0 auto;
+  }
+  .log-item .lt-delete:hover{color:var(--danger);}
   .log-empty{color:var(--ink-faint);font-size:12.5px;text-align:center;padding:40px 0;}
 
   /* responsive */
@@ -339,7 +355,10 @@
   <aside id="logDrawer">
     <div class="log-head">
       <h2>修改记录</h2>
-      <button id="logClose">✕</button>
+      <div class="log-head-actions">
+        <button id="logClearAll">清空全部</button>
+        <button id="logClose">✕</button>
+      </div>
     </div>
     <div class="log-list" id="logList"><div class="log-empty">加载中…</div></div>
   </aside>
@@ -542,13 +561,13 @@
     const wrap = el("div",{class:"field" + (isLong ? " long" : ""), "data-field-id":field.id});
 
     const valueEl = el("div",{class:"f-value", tabindex:"0"}, field.value || "");
-    valueEl.addEventListener("click", ()=>{
+    wrap.addEventListener("click", ()=>{
       if(STATE.editMode) return;
       const text = valueEl.textContent;
       if(!text) return;
       navigator.clipboard.writeText(text).then(()=>{
-        valueEl.classList.add("copied");
-        setTimeout(()=> valueEl.classList.remove("copied"), 500);
+        wrap.classList.add("copied");
+        setTimeout(()=> wrap.classList.remove("copied"), 500);
         showToast("已复制「" + field.label + "」");
       }).catch(()=> showToast("复制失败，请手动选中"));
     });
@@ -559,64 +578,46 @@
     inputEl.value = field.value || "";
     let originalValue = field.value || "";
 
-    function scheduleSave(){
-      clearTimeout(saveTimers[field.id]);
-      saveTimers[field.id] = setTimeout(async ()=>{
-        const newVal = inputEl.value;
-        if(newVal === originalValue) return;
-        const { error } = await sb.from("zlk_fields").update({value:newVal}).eq("id", field.id);
-        if(error){ showToast("保存失败"); console.error(error); return; }
-        await sb.from("zlk_edit_logs").insert({
-          field_id: field.id,
-          field_label_snapshot: field.label,
-          card_title_snapshot: card.title,
-          old_value: originalValue,
-          new_value: newVal,
-          action_type: "edit"
-        });
-        originalValue = newVal;
-        field.value = newVal;
-        valueEl.textContent = newVal;
-        showToast("已自动保存");
-      }, 800);
-    }
-    inputEl.addEventListener("input", scheduleSave);
-    inputEl.addEventListener("blur", ()=>{ clearTimeout(saveTimers[field.id]); scheduleSaveNow(); });
-    function scheduleSaveNow(){
-      const newVal = inputEl.value;
-      if(newVal === originalValue) return;
-      (async ()=>{
-        const { error } = await sb.from("zlk_fields").update({value:newVal}).eq("id", field.id);
-        if(error){ showToast("保存失败"); console.error(error); return; }
-        await sb.from("zlk_edit_logs").insert({
-          field_id: field.id,
-          field_label_snapshot: field.label,
-          card_title_snapshot: card.title,
-          old_value: originalValue,
-          new_value: newVal,
-          action_type: "edit"
-        });
-        originalValue = newVal;
-        field.value = newVal;
-        valueEl.textContent = newVal;
-        showToast("已自动保存");
-      })();
-    }
-
-    const delBtn = el("button",{class:"f-del", title:"删除字段", onclick: async ()=>{
-      if(!confirm(`删除字段「${field.label}」？`)) return;
+    async function persistEdit(newVal){
+      const { error } = await sb.from("zlk_fields").update({value:newVal}).eq("id", field.id);
+      if(error){ showToast("保存失败"); console.error(error); return; }
       await sb.from("zlk_edit_logs").insert({
         field_id: field.id,
         field_label_snapshot: field.label,
         card_title_snapshot: card.title,
-        old_value: field.value || "",
-        new_value: null,
-        action_type: "delete"
+        card_id: card.id,
+        old_value: originalValue,
+        new_value: newVal,
+        action_type: "edit"
       });
-      const { error } = await sb.from("zlk_fields").delete().eq("id", field.id);
-      if(error){ showToast("删除失败"); console.error(error); return; }
-      wrap.remove();
-      showToast("已删除字段");
+      originalValue = newVal;
+      field.value = newVal;
+      valueEl.textContent = newVal;
+      showToast("已自动保存");
+    }
+    function scheduleSave(){
+      clearTimeout(saveTimers[field.id]);
+      saveTimers[field.id] = setTimeout(()=>{
+        const newVal = inputEl.value;
+        if(newVal === originalValue) return;
+        persistEdit(newVal);
+      }, 800);
+    }
+    inputEl.addEventListener("input", scheduleSave);
+    inputEl.addEventListener("blur", ()=>{
+      clearTimeout(saveTimers[field.id]);
+      const newVal = inputEl.value;
+      if(newVal === originalValue) return;
+      persistEdit(newVal);
+    });
+
+    const delBtn = el("button",{class:"f-del", title:"删除字段", onclick: async ()=>{
+      if(!confirm(`删除字段「${field.label}」？`)) return;
+      try{
+        await deleteFieldWithLog(card, field, "delete");
+        wrap.remove();
+        showToast("已删除字段");
+      }catch(err){ console.error(err); showToast("删除失败"); }
     }}, "✕");
 
     wrap.appendChild(el("div",{class:"f-label"}, field.label, delBtn));
@@ -629,6 +630,120 @@
     document.body.classList.toggle("edit-mode", STATE.editMode);
   }
 
+  // ---------- 日志读写核心操作（新建/删除字段、卡片，供直接操作和回滚共用） ----------
+  async function createFieldWithLog(card, label, value, fieldType, actionType){
+    const nextOrder = card.fields.length + 1;
+    const { data, error } = await sb.from("zlk_fields")
+      .insert({card_id:card.id, label, value, field_type:fieldType, order_index:nextOrder})
+      .select().single();
+    if(error) throw error;
+    await sb.from("zlk_edit_logs").insert({
+      field_id: data.id,
+      field_label_snapshot: label,
+      card_title_snapshot: card.title,
+      card_id: card.id,
+      old_value: null,
+      new_value: value,
+      action_type: actionType
+    });
+    return data;
+  }
+
+  async function deleteFieldWithLog(card, field, actionType){
+    await sb.from("zlk_edit_logs").insert({
+      field_id: field.id,
+      field_label_snapshot: field.label,
+      field_type_snapshot: field.field_type,
+      card_title_snapshot: card.title,
+      card_id: card.id,
+      old_value: field.value || "",
+      new_value: null,
+      action_type: actionType
+    });
+    const { error } = await sb.from("zlk_fields").delete().eq("id", field.id);
+    if(error) throw error;
+  }
+
+  async function createCardWithLog(cat, title, actionType){
+    const nextOrder = cat.cards.length + 1;
+    const { data, error } = await sb.from("zlk_cards")
+      .insert({category_id:cat.id, title, order_index:nextOrder})
+      .select().single();
+    if(error) throw error;
+    await sb.from("zlk_edit_logs").insert({
+      field_id: null,
+      field_label_snapshot: "新建卡片",
+      card_title_snapshot: title,
+      card_id: data.id,
+      category_id: cat.id,
+      old_value: null,
+      new_value: title,
+      action_type: actionType
+    });
+    return data;
+  }
+
+  async function deleteCardWithLog(cat, card, actionType){
+    const { data: fields, error: fetchErr } = await sb.from("zlk_fields").select("*").eq("card_id", card.id).order("order_index");
+    if(fetchErr) throw fetchErr;
+    const snapshot = (fields||[]).map(f=>({label:f.label, value:f.value, field_type:f.field_type}));
+    await sb.from("zlk_edit_logs").insert({
+      field_id: null,
+      field_label_snapshot: "删除卡片",
+      card_title_snapshot: card.title,
+      card_id: card.id,
+      category_id: cat.id,
+      old_value: JSON.stringify(snapshot),
+      new_value: null,
+      action_type: actionType
+    });
+    const { error } = await sb.from("zlk_cards").delete().eq("id", card.id);
+    if(error) throw error;
+  }
+
+  async function restoreFieldWithLog(cardId, cardTitle, label, value, fieldType, actionType){
+    const { count } = await sb.from("zlk_fields").select("id",{count:"exact", head:true}).eq("card_id", cardId);
+    const { data, error } = await sb.from("zlk_fields")
+      .insert({card_id:cardId, label, value, field_type: fieldType || "short", order_index:(count||0)+1})
+      .select().single();
+    if(error) throw error;
+    await sb.from("zlk_edit_logs").insert({
+      field_id: data.id,
+      field_label_snapshot: label,
+      card_title_snapshot: cardTitle,
+      card_id: cardId,
+      old_value: null,
+      new_value: value,
+      action_type: actionType
+    });
+    return data;
+  }
+
+  async function restoreCardWithLog(categoryId, title, fieldsSnapshot, actionType){
+    const { count } = await sb.from("zlk_cards").select("id",{count:"exact", head:true}).eq("category_id", categoryId);
+    const { data: newCard, error } = await sb.from("zlk_cards")
+      .insert({category_id:categoryId, title, order_index:(count||0)+1})
+      .select().single();
+    if(error) throw error;
+    for(let i=0;i<fieldsSnapshot.length;i++){
+      const f = fieldsSnapshot[i];
+      await sb.from("zlk_fields").insert({
+        card_id:newCard.id, label:f.label, value:f.value, field_type:f.field_type || "short", order_index:i+1
+      });
+    }
+    await sb.from("zlk_edit_logs").insert({
+      field_id: null,
+      field_label_snapshot: "新建卡片",
+      card_title_snapshot: title,
+      card_id: newCard.id,
+      category_id: categoryId,
+      old_value: null,
+      new_value: title,
+      action_type: actionType
+    });
+    return newCard;
+  }
+
   // ---------- 添加卡片 / 字段 ----------
   function openAddCardForm(cat, section){
     let existing = section.querySelector(".mini-form[data-role=add-card-form]");
@@ -639,17 +754,11 @@
       el("button",{class:"mf-btn mf-save", onclick: async ()=>{
         const title = titleInput.value.trim();
         if(!title) return;
-        const nextOrder = cat.cards.length + 1;
-        const { data, error } = await sb.from("zlk_cards")
-          .insert({category_id:cat.id, title, order_index:nextOrder})
-          .select().single();
-        if(error){ showToast("添加失败"); console.error(error); return; }
-        await sb.from("zlk_edit_logs").insert({
-          field_id: null, field_label_snapshot:"新建卡片",
-          card_title_snapshot: title, old_value:null, new_value:title, action_type:"create"
-        });
-        showToast("已添加卡片");
-        loadAndRender();
+        try{
+          await createCardWithLog(cat, title, "create");
+          showToast("已添加卡片");
+          loadAndRender();
+        }catch(err){ console.error(err); showToast("添加失败"); }
       }}, "保存"),
       el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消")
     );
@@ -672,17 +781,11 @@
     form.appendChild(el("button",{class:"mf-btn mf-save", onclick: async ()=>{
       const label = labelInput.value.trim();
       if(!label) return;
-      const nextOrder = card.fields.length + 1;
-      const { data, error } = await sb.from("zlk_fields")
-        .insert({card_id:card.id, label, value:valueInput.value, field_type:typeSelect.value, order_index:nextOrder})
-        .select().single();
-      if(error){ showToast("添加失败"); console.error(error); return; }
-      await sb.from("zlk_edit_logs").insert({
-        field_id: data.id, field_label_snapshot:label,
-        card_title_snapshot: card.title, old_value:null, new_value:valueInput.value, action_type:"create"
-      });
-      showToast("已添加字段");
-      loadAndRender();
+      try{
+        await createFieldWithLog(card, label, valueInput.value, typeSelect.value, "create");
+        showToast("已添加字段");
+        loadAndRender();
+      }catch(err){ console.error(err); showToast("添加失败"); }
     }}, "保存"));
     form.appendChild(el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消"));
   }
@@ -695,7 +798,7 @@
     if(error){ showToast("保存失败"); console.error(error); return; }
     await sb.from("zlk_edit_logs").insert({
       field_id:null, field_label_snapshot:"卡片标题",
-      card_title_snapshot:newTitle, old_value:old, new_value:newTitle, action_type:"edit"
+      card_title_snapshot:newTitle, card_id:card.id, old_value:old, new_value:newTitle, action_type:"edit"
     });
     card.title = newTitle;
     showToast("已保存");
@@ -703,14 +806,11 @@
 
   async function deleteCard(cat, card, cardEl){
     if(!confirm(`确定删除卡片「${card.title}」吗？其中所有字段也会一并删除，此操作不可撤销。`)) return;
-    await sb.from("zlk_edit_logs").insert({
-      field_id:null, field_label_snapshot:"删除卡片",
-      card_title_snapshot:card.title, old_value:card.title, new_value:null, action_type:"delete"
-    });
-    const { error } = await sb.from("zlk_cards").delete().eq("id", card.id);
-    if(error){ showToast("删除失败"); console.error(error); return; }
-    cardEl.remove();
-    showToast("已删除卡片");
+    try{
+      await deleteCardWithLog(cat, card, "delete");
+      cardEl.remove();
+      showToast("已删除卡片");
+    }catch(err){ console.error(err); showToast("删除失败"); }
   }
 
   // ---------- 编辑模式 / 搜索 / 刷新 ----------
@@ -773,12 +873,18 @@
     logDrawer.classList.add("open");
     logOverlay.classList.add("open");
     logList.innerHTML = "<div class='log-empty'>加载中…</div>";
-    const { data, error } = await sb.from("zlk_edit_logs")
-      .select("*").order("edited_at", {ascending:false}).limit(200);
-    if(error){ logList.innerHTML = "<div class='log-empty'>加载失败</div>"; return; }
+    const [logsRes, cardsRes, fieldsRes] = await Promise.all([
+      sb.from("zlk_edit_logs").select("*").order("edited_at", {ascending:false}).limit(200),
+      sb.from("zlk_cards").select("id"),
+      sb.from("zlk_fields").select("id"),
+    ]);
+    if(logsRes.error){ logList.innerHTML = "<div class='log-empty'>加载失败</div>"; return; }
+    const data = logsRes.data;
     if(!data.length){ logList.innerHTML = "<div class='log-empty'>还没有修改记录</div>"; return; }
+    const existingCardIds = new Set((cardsRes.data||[]).map(c=>c.id));
+    const existingFieldIds = new Set((fieldsRes.data||[]).map(f=>f.id));
     logList.innerHTML = "";
-    data.forEach(log => logList.appendChild(renderLogItem(log)));
+    data.forEach(log => logList.appendChild(renderLogItem(log, existingCardIds, existingFieldIds)));
   }
   function closeLogDrawer(){
     logDrawer.classList.remove("open");
@@ -787,47 +893,154 @@
   document.getElementById("logBtn").addEventListener("click", openLogDrawer);
   document.getElementById("logClose").addEventListener("click", closeLogDrawer);
   logOverlay.addEventListener("click", closeLogDrawer);
+  document.getElementById("logClearAll").addEventListener("click", async ()=>{
+    if(!confirm("这会清空所有修改历史，且不可恢复，确定吗？")) return;
+    const { error } = await sb.from("zlk_edit_logs").delete().not("id", "is", null);
+    if(error){ showToast("清空失败"); console.error(error); return; }
+    showToast("已清空所有记录");
+    openLogDrawer();
+  });
 
   function actionLabel(t){
     return {edit:"修改", create:"新建", delete:"删除", rollback:"回滚"}[t] || t;
   }
 
-  function renderLogItem(log){
-    const canRollback = log.field_id && (log.action_type === "edit" || log.action_type === "rollback");
+  // 根据日志内容判断这是哪一种记录（不依赖 action_type，避免外键 on delete set null 把线索清空后无法分类）
+  function classifyLog(log){
+    const label = log.field_label_snapshot;
+    if(label === "删除卡片") return "CARD_DELETE";
+    if(label === "新建卡片") return "CARD_CREATE";
+    if(label === "卡片标题") return "CARD_TITLE_EDIT";
+    if(log.old_value === null) return "FIELD_CREATE";
+    if(log.new_value === null) return "FIELD_DELETE";
+    return "FIELD_EDIT";
+  }
+
+  function rollbackInfo(log, kind, existingCardIds, existingFieldIds){
+    switch(kind){
+      case "FIELD_EDIT":
+        return (log.field_id && existingFieldIds.has(log.field_id))
+          ? {ok:true} : {ok:false, reason:"该字段已被删除，无法回滚"};
+      case "CARD_TITLE_EDIT":
+        return (log.card_id && existingCardIds.has(log.card_id))
+          ? {ok:true} : {ok:false, reason:"该卡片已被删除，无法回滚"};
+      case "FIELD_CREATE":
+        return (log.field_id && existingFieldIds.has(log.field_id))
+          ? {ok:true} : {ok:false, reason:"该字段已被删除，无法回滚"};
+      case "CARD_CREATE":
+        return (log.card_id && existingCardIds.has(log.card_id))
+          ? {ok:true} : {ok:false, reason:"该卡片已被删除，无法回滚"};
+      case "FIELD_DELETE":
+        return (log.card_id && existingCardIds.has(log.card_id))
+          ? {ok:true} : {ok:false, reason:"所在卡片已被删除，无法回滚"};
+      case "CARD_DELETE":
+        return {ok:true};
+      default:
+        return {ok:false, reason:null};
+    }
+  }
+
+  async function performRollback(log, kind){
+    try{
+      if(kind === "FIELD_EDIT"){
+        const { data: rows } = await sb.from("zlk_fields").select("*").eq("id", log.field_id).limit(1);
+        if(!rows || !rows.length){ showToast("该字段已被删除，无法回滚"); return; }
+        if(!confirm("回滚到这个版本吗？")) return;
+        const cur = rows[0];
+        const { error } = await sb.from("zlk_fields").update({value: log.old_value}).eq("id", log.field_id);
+        if(error) throw error;
+        await sb.from("zlk_edit_logs").insert({
+          field_id: log.field_id, field_label_snapshot: log.field_label_snapshot,
+          card_title_snapshot: log.card_title_snapshot, card_id: log.card_id,
+          old_value: cur.value, new_value: log.old_value, action_type: "rollback"
+        });
+      } else if(kind === "CARD_TITLE_EDIT"){
+        const { data: rows } = await sb.from("zlk_cards").select("*").eq("id", log.card_id).limit(1);
+        if(!rows || !rows.length){ showToast("该卡片已被删除，无法回滚"); return; }
+        if(!confirm("回滚到这个版本吗？")) return;
+        const cur = rows[0];
+        const { error } = await sb.from("zlk_cards").update({title: log.old_value}).eq("id", log.card_id);
+        if(error) throw error;
+        await sb.from("zlk_edit_logs").insert({
+          field_id:null, field_label_snapshot:"卡片标题",
+          card_title_snapshot: log.old_value, card_id: log.card_id,
+          old_value: cur.title, new_value: log.old_value, action_type: "rollback"
+        });
+      } else if(kind === "FIELD_CREATE"){
+        const { data: rows } = await sb.from("zlk_fields").select("*").eq("id", log.field_id).limit(1);
+        if(!rows || !rows.length){ showToast("该字段已被删除，无法回滚"); return; }
+        const field = rows[0];
+        if(!confirm(`回滚将删除字段「${field.label}」，确定吗？`)) return;
+        await deleteFieldWithLog({id: field.card_id, title: log.card_title_snapshot}, field, "rollback");
+      } else if(kind === "CARD_CREATE"){
+        const { data: rows } = await sb.from("zlk_cards").select("*").eq("id", log.card_id).limit(1);
+        if(!rows || !rows.length){ showToast("该卡片已被删除，无法回滚"); return; }
+        const card = rows[0];
+        if(!confirm(`回滚将删除卡片「${card.title}」及其所有字段，确定吗？`)) return;
+        await deleteCardWithLog({id: log.category_id}, card, "rollback");
+      } else if(kind === "FIELD_DELETE"){
+        const { data: rows } = await sb.from("zlk_cards").select("*").eq("id", log.card_id).limit(1);
+        if(!rows || !rows.length){ showToast("所在卡片已被删除，无法回滚"); return; }
+        const card = rows[0];
+        if(!confirm(`回滚将恢复字段「${log.field_label_snapshot}」，确定吗？`)) return;
+        await restoreFieldWithLog(card.id, card.title, log.field_label_snapshot, log.old_value, log.field_type_snapshot, "rollback");
+      } else if(kind === "CARD_DELETE"){
+        let fieldsSnapshot = [];
+        try{ fieldsSnapshot = JSON.parse(log.old_value || "[]"); }catch(e){}
+        if(!confirm(`回滚将恢复卡片「${log.card_title_snapshot}」及其 ${fieldsSnapshot.length} 个字段，确定吗？`)) return;
+        await restoreCardWithLog(log.category_id, log.card_title_snapshot, fieldsSnapshot, "rollback");
+      } else {
+        return;
+      }
+      showToast("已回滚");
+      openLogDrawer();
+      loadAndRender();
+    }catch(err){
+      console.error(err);
+      showToast("回滚失败");
+    }
+  }
+
+  function diffLine(log, kind){
+    if(kind === "CARD_DELETE"){
+      let n = 0;
+      try{ n = JSON.parse(log.old_value || "[]").length; }catch(e){}
+      return el("div",{class:"lt-diff"}, `该卡片删除时包含 ${n} 个字段`);
+    }
+    return el("div",{class:"lt-diff"},
+      log.old_value ? el("span",{class:"lt-old"}, truncate(log.old_value)) : el("span",{},"（空）"),
+      " → ",
+      log.new_value ? el("span",{class:"lt-new"}, truncate(log.new_value)) : el("span",{},"（空）")
+    );
+  }
+
+  function renderLogItem(log, existingCardIds, existingFieldIds){
+    const kind = classifyLog(log);
     const item = el("div",{class:"log-item"},
       el("div",{class:"lt-top"},
         el("span",{text: fmtTime(log.edited_at) + " · " + actionLabel(log.action_type)}),
       ),
       el("div",{class:"lt-path", text:(log.card_title_snapshot||"") + " · " + (log.field_label_snapshot||"")}),
-      el("div",{class:"lt-diff"},
-        log.old_value ? el("span",{class:"lt-old"}, truncate(log.old_value)) : el("span",{},"（空）"),
-        " → ",
-        log.new_value ? el("span",{class:"lt-new"}, truncate(log.new_value)) : el("span",{},"（空）")
-      )
+      diffLine(log, kind)
     );
-    if(canRollback){
-      item.appendChild(
-        el("button",{class:"lt-rollback", onclick: async ()=>{
-          if(!confirm("回滚到这个版本吗？")) return;
-          const { data: curRows } = await sb.from("zlk_fields").select("*").eq("id", log.field_id).limit(1);
-          if(!curRows || !curRows.length){ showToast("该字段已被删除，无法回滚"); return; }
-          const cur = curRows[0];
-          const { error } = await sb.from("zlk_fields").update({value: log.old_value}).eq("id", log.field_id);
-          if(error){ showToast("回滚失败"); return; }
-          await sb.from("zlk_edit_logs").insert({
-            field_id: log.field_id,
-            field_label_snapshot: log.field_label_snapshot,
-            card_title_snapshot: log.card_title_snapshot,
-            old_value: cur.value,
-            new_value: log.old_value,
-            action_type: "rollback"
-          });
-          showToast("已回滚");
-          openLogDrawer();
-          loadAndRender();
-        }}, "回滚到这个版本")
-      );
+    const info = rollbackInfo(log, kind, existingCardIds, existingFieldIds);
+    const actionsRow = el("div",{class:"lt-actions"});
+    if(info.ok){
+      actionsRow.appendChild(el("button",{class:"lt-rollback", onclick: ()=> performRollback(log, kind)}, "回滚到这个版本"));
+    } else if(info.reason){
+      actionsRow.appendChild(el("span",{class:"lt-disabled", text: info.reason}));
+    } else {
+      actionsRow.appendChild(el("span",{}));
     }
+    actionsRow.appendChild(el("button",{class:"lt-delete", title:"删除这条记录", onclick: async ()=>{
+      if(!confirm("删除这条修改记录吗？")) return;
+      const { error } = await sb.from("zlk_edit_logs").delete().eq("id", log.id);
+      if(error){ showToast("删除失败"); console.error(error); return; }
+      item.remove();
+      if(!logList.querySelector(".log-item")) logList.innerHTML = "<div class='log-empty'>还没有修改记录</div>";
+      showToast("已删除记录");
+    }}, "删除记录"));
+    item.appendChild(actionsRow);
     return item;
   }
 
