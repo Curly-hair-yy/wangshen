@@ -345,6 +345,33 @@
     .topbar .title{display:none;}
     #logDrawer{width:100%;max-width:100%;}
   }
+
+  /* ---------- 导出 PDF（打印版式） ---------- */
+  #printArea{display:none;}
+  #printArea{font-family:var(--font);color:#1d1d1f;font-size:9.5pt;line-height:1.5;}
+  #printArea .p-title{margin:0 0 2pt;font-size:20pt;font-weight:700;letter-spacing:-.01em;}
+  #printArea .p-sub{margin:0 0 14pt;font-size:9pt;color:#6e6e73;padding-bottom:8pt;border-bottom:1.2pt solid #0a84ff;}
+  #printArea .p-cat{margin:0 0 6pt;}
+  #printArea .p-cat > h2{
+    margin:14pt 0 8pt;padding-left:7pt;border-left:3.2pt solid #0a84ff;
+    font-size:13pt;font-weight:700;break-after:avoid;page-break-after:avoid;
+  }
+  #printArea .p-card{margin:0 0 9pt;padding:7pt 9pt 3pt;border:.6pt solid #d4dbe6;border-radius:6pt;break-inside:avoid;page-break-inside:avoid;}
+  #printArea .p-card.p-big{break-inside:auto;page-break-inside:auto;}
+  #printArea .p-card > h3{margin:0 0 5pt;font-size:10.5pt;font-weight:700;color:#0364cc;break-after:avoid;page-break-after:avoid;}
+  #printArea .p-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0 12pt;}
+  #printArea .p-f{padding:3pt 0 4pt;border-top:.4pt solid #e6ebf2;break-inside:avoid;page-break-inside:avoid;min-width:0;}
+  #printArea .p-f.long{grid-column:1 / -1;}
+  #printArea .p-l{font-size:7.5pt;font-weight:600;color:#8a8a8f;margin-bottom:1pt;}
+  #printArea .p-v{white-space:pre-wrap;word-break:break-word;}
+
+  @media print{
+    @page{size:A4;margin:14mm 12mm;}
+    html,body{background:#fff !important;}
+    body > *:not(#printArea){display:none !important;}
+    #printArea{display:block !important;}
+    #printArea *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
 </style>
 </head>
 <body>
@@ -369,6 +396,7 @@
       </div>
       <div class="spacer"></div>
       <button class="tb-btn icon-only" id="refreshBtn" title="重新加载">⟳</button>
+      <button class="tb-btn" id="pdfBtn" title="把全部最新内容导出成 PDF">导出PDF</button>
       <button class="tb-btn" id="logBtn">修改记录</button>
       <button class="tb-btn" id="editToggle">编辑模式</button>
       <button class="tb-btn icon-only" id="lockBtn" title="退出锁定">🔒</button>
@@ -382,6 +410,7 @@
   </div>
 
   <div id="toastWrap"></div>
+  <div id="printArea"></div>
 
   <div id="logOverlay"></div>
   <aside id="logDrawer">
@@ -856,6 +885,89 @@
       showToast("已删除卡片");
     }catch(err){ console.error(err); showToast("删除失败"); }
   }
+
+  // ---------- 导出 PDF（用浏览器的打印功能“另存为 PDF”，文字可选中、中文不会乱码） ----------
+  const printAreaEl = document.getElementById("printArea");
+  const pad2 = n => String(n).padStart(2,"0");
+  let savedTitle = null;
+
+  function findPersonName(cats){
+    for(const cat of cats) for(const card of cat.cards) for(const f of card.fields){
+      if(f.label === "姓名" && (f.value||"").trim()) return f.value.trim();
+    }
+    return "";
+  }
+
+  function setPrintTitle(cats){
+    if(savedTitle === null) savedTitle = document.title;
+    const name = findPersonName(cats);
+    const d = new Date();
+    document.title = "网申资料" + (name ? "-" + name : "") + "-" + d.getFullYear() + pad2(d.getMonth()+1) + pad2(d.getDate());
+  }
+
+  function buildPrintArea(cats){
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+    const name = findPersonName(cats);
+    printAreaEl.textContent = "";
+    printAreaEl.appendChild(el("h1",{class:"p-title", text: name ? name + " · 网申资料" : "网申资料"}));
+    printAreaEl.appendChild(el("div",{class:"p-sub", text:"导出时间：" + stamp}));
+    cats.forEach(cat=>{
+      const cards = cat.cards
+        .map(card => ({ card, fields: card.fields.filter(f => (f.value||"").trim() !== "") }))
+        .filter(x => x.fields.length);
+      if(!cards.length) return;
+      const sec = el("section",{class:"p-cat"}, el("h2",{text:cat.name}));
+      cards.forEach(({card, fields})=>{
+        const shorts = fields.filter(f => f.field_type !== "long").length;
+        const longUnits = fields.filter(f => f.field_type === "long").reduce((n,f)=> n + 1.3 + Math.ceil(f.value.length/52), 0);
+        const tooTall = Math.ceil(shorts/3)*2.6 + longUnits > 38;   // 估算比较高的卡片允许跨页，其余卡片尽量不被拆开
+        const grid = el("div",{class:"p-grid"});
+        fields.forEach(f => grid.appendChild(
+          el("div",{class:"p-f" + (f.field_type === "long" ? " long" : "")},
+            el("div",{class:"p-l", text:f.label}),
+            el("div",{class:"p-v", text:f.value}))
+        ));
+        sec.appendChild(el("div",{class:"p-card" + (tooTall ? " p-big" : "")}, el("h3",{text:card.title}), grid));
+      });
+      printAreaEl.appendChild(sec);
+    });
+  }
+
+  async function exportPdf(){
+    const btn = document.getElementById("pdfBtn");
+    if(btn.disabled) return;
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "准备中…";
+    try{
+      if(STATE.editMode) await new Promise(r => setTimeout(r, 500));   // 等正在输入的内容先自动保存完
+      const fresh = await fetchAll();                                  // 重新读一遍数据库，保证导出的是最新内容
+      const cats = fresh || STATE.categories;
+      if(!cats.length){ showToast("还没有内容可以导出"); return; }
+      buildPrintArea(cats);
+      setPrintTitle(cats);
+      showToast("请在打印窗口里把目标选为「另存为 PDF」");
+      await new Promise(r => setTimeout(r, 700));
+      window.print();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
+  }
+  document.getElementById("pdfBtn").addEventListener("click", exportPdf);
+
+  // 直接按 Cmd/Ctrl+P 打印时，也用同样的版式
+  window.addEventListener("beforeprint", ()=>{
+    if(!printAreaEl.childElementCount && STATE.categories.length){
+      buildPrintArea(STATE.categories);
+      setPrintTitle(STATE.categories);
+    }
+  });
+  window.addEventListener("afterprint", ()=>{
+    printAreaEl.textContent = "";
+    if(savedTitle !== null){ document.title = savedTitle; savedTitle = null; }
+  });
 
   // ---------- 编辑模式 / 搜索 / 刷新 ----------
   document.getElementById("editToggle").addEventListener("click", function(){
