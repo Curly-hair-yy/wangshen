@@ -241,6 +241,19 @@
   }
   body.edit-mode .cat-del{display:inline-block;animation:fadeIn .3s var(--ease);}
   .cat-del:hover{border-color:var(--danger);color:var(--danger);background:var(--danger-bg);}
+  .add-cat-wrap{display:none;margin:6px 0 40px;}
+  body.edit-mode .add-cat-wrap{display:block;animation:fadeIn .3s var(--ease);}
+  .add-cat-btn{
+    width:100%;padding:18px;border:1.5px dashed rgba(0,0,0,.16);border-radius:var(--radius);
+    background:rgba(255,255,255,.35);color:var(--ink-soft);font-size:15px;font-weight:600;
+    transition:border-color .2s var(--ease), background .2s var(--ease), color .2s var(--ease), transform .25s var(--spring);
+  }
+  .add-cat-btn:hover{border-color:var(--accent-line);background:var(--accent-bg);color:var(--accent-dark);transform:translateY(-2px);}
+  .add-cat-wrap .mini-form{border-radius:var(--radius);border:1px solid var(--line);margin-top:10px;}
+  .cat-section.just-added{animation:justAdded 1.6s var(--ease);}
+  @keyframes justAdded{0%{opacity:0;transform:translateY(16px) scale(.98);}30%{opacity:1;transform:none;}
+    30%,70%{background:rgba(207,220,142,.35);box-shadow:0 0 0 10px rgba(207,220,142,.35);border-radius:16px;}
+    100%{background:transparent;box-shadow:0 0 0 10px rgba(207,220,142,0);}}
   /* 删除时的收起动画 */
   .leaving{
     overflow:hidden;pointer-events:none;
@@ -768,6 +781,7 @@
       );
       contentEl.appendChild(section);
     });
+    contentEl.appendChild(renderAddCategory());
     navListEl.scrollTop = prevNavScroll;
     applyEditModeClass();
     updateScrollOffset();
@@ -1126,6 +1140,51 @@
       if(cnt) cnt.textContent = String(cat.cards.length);
       showToast("已删除卡片");
     }catch(err){ console.error(err); showToast("删除失败"); }
+  }
+
+  // ---------- 分类：添加 ----------
+  function renderAddCategory(){
+    const wrap = el("div",{class:"add-cat-wrap"});
+    const nameInput = el("input",{type:"text", placeholder:"新分类名称，例如「作品集」"});
+    const form = el("div",{class:"mini-form"}, nameInput,
+      el("div",{class:"mf-actions"},
+        el("button",{class:"mf-btn mf-save", onclick: submit}, "添加"),
+        el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消")
+      ));
+    nameInput.addEventListener("keydown", e=>{ if(e.key === "Enter") submit(); });
+    async function submit(){
+      const name = nameInput.value.trim();
+      if(!name) return;
+      try{
+        const newCat = await createCategoryWithLog(name, "create");
+        showToast("已添加分类「" + name + "」");
+        await loadAndRender();
+        const sec = document.getElementById("cat-" + newCat.id);
+        if(sec){
+          sec.scrollIntoView({behavior:"smooth", block:"start"});
+          sec.classList.add("just-added");
+          setTimeout(()=> sec.classList.remove("just-added"), 1700);
+        }
+      }catch(err){ console.error(err); showToast("添加失败"); }
+    }
+    wrap.appendChild(el("button",{class:"add-cat-btn", onclick:()=>{
+      form.classList.toggle("open");
+      if(form.classList.contains("open")) setTimeout(()=> nameInput.focus(), 30);
+    }}, "＋ 添加分类"));
+    wrap.appendChild(form);
+    return wrap;
+  }
+
+  async function createCategoryWithLog(name, actionType){
+    const maxOrder = STATE.categories.reduce((m,c)=> Math.max(m, c.order_index || 0), 0);
+    const { data, error } = await sb.from("zlk_categories")
+      .insert({name, order_index:maxOrder + 1}).select().single();
+    if(error) throw error;
+    await sb.from("zlk_edit_logs").insert({
+      field_id:null, field_label_snapshot:"新建分类", card_title_snapshot:name,
+      category_id:data.id, old_value:null, new_value:name, action_type:actionType
+    });
+    return data;
   }
 
   // ---------- 分类：改名 / 删除（删除前把整个分类存进修改记录，可回滚恢复） ----------
