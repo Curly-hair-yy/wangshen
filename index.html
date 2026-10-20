@@ -1438,10 +1438,17 @@
     const spy = ()=>{
       let currentId = sections[0].id;
       // 用元素在屏幕上的实际位置判断，并留几像素余量：浏览器缩放不是 100% 时会有小数误差
+      // 分类标题滚到屏幕上方 1/3 处，就算进入这个分类
+      const line = Math.max(scrollOffsetPx + 6, window.innerHeight / 3);
       sections.forEach(s=>{
         if(s.classList.contains("hidden-by-search")) return;
-        if(s.getBoundingClientRect().top <= scrollOffsetPx + 6) currentId = s.id;
+        if(s.getBoundingClientRect().top <= line) currentId = s.id;
       });
+      // 从目录点过去的：目标到位后以它为准（下一个分类很短时也可能越过 1/3 线）
+      if(clickedCatId){
+        const t = document.getElementById(clickedCatId);
+        if(t && t.getBoundingClientRect().top <= line) currentId = clickedCatId;
+      }
       // 已经滚到页面最底：最后几个分类滚不到顶部，以点击的那个为准
       const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4;
       if(atBottom && clickedCatId && document.getElementById(clickedCatId)) currentId = clickedCatId;
