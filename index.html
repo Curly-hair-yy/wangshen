@@ -254,6 +254,8 @@
   @keyframes justAdded{0%{opacity:0;transform:translateY(16px) scale(.98);}30%{opacity:1;transform:none;}
     30%,70%{background:rgba(207,220,142,.35);box-shadow:0 0 0 10px rgba(207,220,142,.35);border-radius:16px;}
     100%{background:transparent;box-shadow:0 0 0 10px rgba(207,220,142,0);}}
+  .just-added-item{animation:popIn .5s var(--spring) both;}
+  .mf-btn:disabled{opacity:.6;cursor:default;}
   /* 删除时的收起动画 */
   .leaving{
     overflow:hidden;pointer-events:none;
@@ -724,6 +726,8 @@
   window.addEventListener("resize", updateScrollOffset);
 
   let firstRender = true;
+  let clickedCatId = null;   // 从目录点击跳转的目标；用户自己滚动时清空
+  ["wheel","touchstart","keydown"].forEach(t=> window.addEventListener(t, ()=>{ clickedCatId = null; }, {passive:true}));
   let navListEl = null, navIndicatorEl = null;
 
   function render(){
@@ -753,7 +757,9 @@
       navListEl.appendChild(
         el("a", {href:"#"+anchorId, "data-cat":anchorId, onclick:(e)=>{
           e.preventDefault();
+          clickedCatId = anchorId;
           document.getElementById(anchorId).scrollIntoView({behavior:"smooth", block:"start"});
+          if(window._zlkSpy) window._zlkSpy();   // 已在底部、页面不需要滚动时也要更新高亮
         }},
           el("span",{class:"num", text:String(idx+1).padStart(2,"0")}),
           el("span",{class:"name", text:cat.name}),
@@ -955,7 +961,8 @@
       .insert({card_id:card.id, label, value, field_type:fieldType, order_index:nextOrder})
       .select().single();
     if(error) throw error;
-    await sb.from("zlk_edit_logs").insert({
+    // 修改记录在后台写，不让用户等
+    sb.from("zlk_edit_logs").insert({
       field_id: data.id,
       field_label_snapshot: label,
       card_title_snapshot: card.title,
@@ -963,7 +970,7 @@
       old_value: null,
       new_value: value,
       action_type: actionType
-    });
+    }).then(({error})=>{ if(error) console.error(error); });
     return data;
   }
 
@@ -988,7 +995,7 @@
       .insert({category_id:cat.id, title, order_index:nextOrder})
       .select().single();
     if(error) throw error;
-    await sb.from("zlk_edit_logs").insert({
+    sb.from("zlk_edit_logs").insert({
       field_id: null,
       field_label_snapshot: "新建卡片",
       card_title_snapshot: title,
@@ -997,7 +1004,7 @@
       old_value: null,
       new_value: title,
       action_type: actionType
-    });
+    }).then(({error})=>{ if(error) console.error(error); });
     return data;
   }
 
@@ -1067,17 +1074,31 @@
     let existing = section.querySelector(".mini-form[data-role=add-card-form]");
     if(existing){ existing.classList.toggle("open"); return; }
     const titleInput = el("input",{type:"text", placeholder:"卡片标题，例如「经历五」"});
+    const saveBtn = el("button",{class:"mf-btn mf-save", onclick: async ()=>{
+        const title = titleInput.value.trim();
+        if(!title || saveBtn.disabled) return;
+        saveBtn.disabled = true; saveBtn.textContent = "保存中…";
+        try{
+          const data = await createCardWithLog(cat, title, "create");
+          // 不整页刷新：直接把新卡片放进去
+          const card = {...data, fields: []};
+          cat.cards.push(card);
+          const cardEl = renderCard(cat, card);
+          cardEl.classList.add("just-added-item");
+          section.querySelector(".cards-grid").appendChild(cardEl);
+          section.querySelector(".cat-sub").textContent = `${cat.cards.length} 张卡片`;
+          const cnt = sidebarEl.querySelector(`a[data-cat="cat-${cat.id}"] .count`);
+          if(cnt) cnt.textContent = String(cat.cards.length);
+          titleInput.value = "";
+          form.classList.remove("open");
+          showToast("已添加卡片");
+        }catch(err){ console.error(err); showToast("添加失败"); }
+        saveBtn.disabled = false; saveBtn.textContent = "保存";
+      }}, "保存");
+    titleInput.addEventListener("keydown", e=>{ if(e.key === "Enter") saveBtn.click(); });
     const form = el("div",{class:"mini-form open", "data-role":"add-card-form"},
       titleInput,
-      el("button",{class:"mf-btn mf-save", onclick: async ()=>{
-        const title = titleInput.value.trim();
-        if(!title) return;
-        try{
-          await createCardWithLog(cat, title, "create");
-          showToast("已添加卡片");
-          loadAndRender();
-        }catch(err){ console.error(err); showToast("添加失败"); }
-      }}, "保存"),
+      saveBtn,
       el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消")
     );
     section.querySelector(".add-card-btn").insertAdjacentElement("beforebegin", form);
@@ -1100,16 +1121,25 @@
     form.appendChild(labelInput);
     form.appendChild(typeSelect);
     form.appendChild(valueInput);
-    form.appendChild(el("div",{class:"mf-actions"},
-      el("button",{class:"mf-btn mf-save", onclick: async ()=>{
+    const saveBtn = el("button",{class:"mf-btn mf-save", onclick: async ()=>{
         const label = labelInput.value.trim();
-        if(!label) return;
+        if(!label || saveBtn.disabled) return;
+        saveBtn.disabled = true; saveBtn.textContent = "保存中…";
         try{
-          await createFieldWithLog(card, label, valueInput.value, typeSelect.value, "create");
+          const data = await createFieldWithLog(card, label, valueInput.value, typeSelect.value, "create");
+          // 不整页刷新：直接把新字段放进卡片
+          card.fields.push(data);
+          const fEl = renderField(cat, card, data);
+          fEl.classList.add("just-added-item");
+          cardEl.querySelector(".fields").appendChild(fEl);
+          labelInput.value = ""; valueInput.value = ""; valueInput.style.height = "";
+          form.classList.remove("open");
           showToast("已添加字段");
-          loadAndRender();
         }catch(err){ console.error(err); showToast("添加失败"); }
-      }}, "保存"),
+        saveBtn.disabled = false; saveBtn.textContent = "保存";
+      }}, "保存");
+    form.appendChild(el("div",{class:"mf-actions"},
+      saveBtn,
       el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消")
     ));
   }
@@ -1407,8 +1437,14 @@
     let lastActive = null;
     const spy = ()=>{
       let currentId = sections[0].id;
-      const y = window.scrollY + scrollOffsetPx;
-      sections.forEach(s=>{ if(s.offsetTop <= y) currentId = s.id; });
+      // 用元素在屏幕上的实际位置判断，并留几像素余量：浏览器缩放不是 100% 时会有小数误差
+      sections.forEach(s=>{
+        if(s.classList.contains("hidden-by-search")) return;
+        if(s.getBoundingClientRect().top <= scrollOffsetPx + 6) currentId = s.id;
+      });
+      // 已经滚到页面最底：最后几个分类滚不到顶部，以点击的那个为准
+      const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4;
+      if(atBottom && clickedCatId && document.getElementById(clickedCatId)) currentId = clickedCatId;
       let activeLink = null;
       links.forEach(l=>{
         const on = l.getAttribute("data-cat") === currentId;
