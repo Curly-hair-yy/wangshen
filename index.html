@@ -225,6 +225,30 @@
   }
   .cat-head h2{font-size:24px;margin:0;font-weight:700;color:var(--ink);letter-spacing:-.02em;}
   .cat-head .cat-sub{font-size:13px;color:var(--ink-faint);}
+  .cat-head{align-items:center;}
+  .cat-head input.cat-name-edit{
+    display:none;font-family:inherit;font-size:22px;font-weight:700;color:var(--ink);letter-spacing:-.02em;
+    border:1px solid var(--line);background:#fff;border-radius:12px;padding:3px 10px;
+    width:min(320px,60%);outline:none;transition:border-color .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  .cat-head input.cat-name-edit:focus{border-color:var(--accent-line);box-shadow:0 0 0 4px var(--accent-bg);}
+  body.edit-mode .cat-head h2{display:none;}
+  body.edit-mode .cat-head input.cat-name-edit{display:block;animation:fadeIn .3s var(--ease);}
+  .cat-del{
+    display:none;margin-left:auto;border:1px solid var(--line);background:transparent;color:var(--ink-faint);
+    font-size:13px;padding:6px 13px;border-radius:999px;
+    transition:border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+  }
+  body.edit-mode .cat-del{display:inline-block;animation:fadeIn .3s var(--ease);}
+  .cat-del:hover{border-color:var(--danger);color:var(--danger);background:var(--danger-bg);}
+  /* 删除时的收起动画 */
+  .leaving{
+    overflow:hidden;pointer-events:none;
+    transition:height .45s var(--ease), opacity .3s var(--ease), transform .45s var(--ease),
+      margin .45s var(--ease), padding .45s var(--ease) !important;
+  }
+  .leaving.gone{opacity:0;transform:scale(.96);height:0 !important;margin-top:0 !important;margin-bottom:0 !important;padding-top:0 !important;padding-bottom:0 !important;}
+  .field.leaving.gone{transform:scale(.8);}
 
   .cards-grid{display:flex;flex-direction:column;gap:16px;}
 
@@ -583,6 +607,19 @@
     }, 1600);
   }
 
+  // 删除时的收起动画：先淡出缩小、高度收为 0，再从页面移除
+  function animateOut(node){
+    return new Promise(resolve=>{
+      if(!node || !node.isConnected){ resolve(); return; }
+      if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches){ node.remove(); resolve(); return; }
+      node.style.height = node.offsetHeight + "px";
+      node.classList.add("leaving");
+      void node.offsetHeight;
+      node.classList.add("gone");
+      setTimeout(()=>{ node.remove(); resolve(); }, 470);
+    });
+  }
+
   function fmtTime(iso){
     const d = new Date(iso);
     const p = n => String(n).padStart(2,"0");
@@ -712,10 +749,15 @@
       );
 
       const section = el("section",{class:"cat-section", id:anchorId, "data-cat-name":cat.name});
+      const nameInput = el("input",{class:"cat-name-edit", type:"text", value:cat.name, title:"修改分类名称"});
+      nameInput.addEventListener("change", ()=> saveCategoryName(cat, nameInput, section));
+      nameInput.addEventListener("keydown", e=>{ if(e.key === "Enter") nameInput.blur(); });
       section.appendChild(
         el("div",{class:"cat-head"},
           el("h2",{text:cat.name}),
-          el("span",{class:"cat-sub", text:`${cat.cards.length} 张卡片`})
+          nameInput,
+          el("span",{class:"cat-sub", text:`${cat.cards.length} 张卡片`}),
+          el("button",{class:"cat-del", title:"删除整个分类", onclick:()=> deleteCategory(cat, section)}, "删除分类")
         )
       );
       const grid = el("div",{class:"cards-grid"});
@@ -824,7 +866,6 @@
       const text = valueEl.textContent;
       if(!text) return;
       writeClipboard(text).then(()=>{
-        wrap.classList.add("copied");
         clearTimeout(wrap._copiedTimer);
         wrap.classList.remove("copied"); void wrap.offsetWidth;
         wrap.classList.add("copied");
@@ -877,7 +918,8 @@
       if(!confirm(`删除字段「${field.label}」？`)) return;
       try{
         await deleteFieldWithLog(card, field, "delete");
-        wrap.remove();
+        card.fields = card.fields.filter(f=> f.id !== field.id);
+        animateOut(wrap);
         showToast("已删除字段");
       }catch(err){ console.error(err); showToast("删除失败"); }
     }}, "✕");
@@ -1076,9 +1118,107 @@
     if(!confirm(`确定删除卡片「${card.title}」吗？其中所有字段也会一并删除，此操作不可撤销。`)) return;
     try{
       await deleteCardWithLog(cat, card, "delete");
-      cardEl.remove();
+      cat.cards = cat.cards.filter(c=> c.id !== card.id);
+      animateOut(cardEl);
+      const sub = cardEl.closest(".cat-section") && cardEl.closest(".cat-section").querySelector(".cat-sub");
+      if(sub) sub.textContent = `${cat.cards.length} 张卡片`;
+      const cnt = sidebarEl.querySelector(`a[data-cat="cat-${cat.id}"] .count`);
+      if(cnt) cnt.textContent = String(cat.cards.length);
       showToast("已删除卡片");
     }catch(err){ console.error(err); showToast("删除失败"); }
+  }
+
+  // ---------- 分类：改名 / 删除（删除前把整个分类存进修改记录，可回滚恢复） ----------
+  async function saveCategoryName(cat, input, section){
+    const newName = input.value.trim();
+    if(!newName){ input.value = cat.name; return; }
+    if(newName === cat.name) return;
+    const old = cat.name;
+    const { error } = await sb.from("zlk_categories").update({name:newName}).eq("id", cat.id);
+    if(error){ showToast("保存失败"); console.error(error); input.value = old; return; }
+    await sb.from("zlk_edit_logs").insert({
+      field_id:null, field_label_snapshot:"分类名称", card_title_snapshot:newName,
+      category_id:cat.id, old_value:old, new_value:newName, action_type:"edit"
+    });
+    cat.name = newName;
+    section.querySelector(".cat-head h2").textContent = newName;
+    section.setAttribute("data-cat-name", newName);
+    const nm = sidebarEl.querySelector(`a[data-cat="cat-${cat.id}"] .name`);
+    if(nm) nm.textContent = newName;
+    showToast("分类名称已保存");
+  }
+
+  async function snapshotCategory(categoryId){
+    const [catRes, cardsRes] = await Promise.all([
+      sb.from("zlk_categories").select("*").eq("id", categoryId).limit(1),
+      sb.from("zlk_cards").select("*").eq("category_id", categoryId).order("order_index"),
+    ]);
+    if(catRes.error || cardsRes.error) throw (catRes.error || cardsRes.error);
+    if(!catRes.data || !catRes.data.length) return null;
+    const cards = cardsRes.data || [];
+    let fields = [];
+    if(cards.length){
+      const fRes = await sb.from("zlk_fields").select("*").in("card_id", cards.map(c=>c.id)).order("order_index");
+      if(fRes.error) throw fRes.error;
+      fields = fRes.data || [];
+    }
+    const c = catRes.data[0];
+    return {
+      name: c.name, order_index: c.order_index,
+      cards: cards.map(cd=>({
+        title: cd.title, order_index: cd.order_index,
+        fields: fields.filter(f=> f.card_id === cd.id).map(f=>({label:f.label, value:f.value, field_type:f.field_type}))
+      }))
+    };
+  }
+
+  async function deleteCategoryWithLog(categoryId, actionType){
+    const snap = await snapshotCategory(categoryId);
+    if(!snap) throw new Error("分类不存在");
+    const { error: logErr } = await sb.from("zlk_edit_logs").insert({
+      field_id:null, field_label_snapshot:"删除分类", card_title_snapshot:snap.name,
+      category_id:categoryId, old_value:JSON.stringify(snap), new_value:null, action_type:actionType
+    });
+    if(logErr) throw logErr;   // 记录没存上就不删，免得删了没法恢复
+    const { error } = await sb.from("zlk_categories").delete().eq("id", categoryId);
+    if(error) throw error;
+    return snap;
+  }
+
+  async function restoreCategoryWithLog(snap, actionType){
+    const { data: newCat, error } = await sb.from("zlk_categories")
+      .insert({name:snap.name, order_index:snap.order_index}).select().single();
+    if(error) throw error;
+    for(let i=0;i<(snap.cards||[]).length;i++){
+      const cd = snap.cards[i];
+      const { data: newCard, error: cErr } = await sb.from("zlk_cards")
+        .insert({category_id:newCat.id, title:cd.title, order_index:cd.order_index != null ? cd.order_index : i+1}).select().single();
+      if(cErr) throw cErr;
+      const rows = (cd.fields||[]).map((f,j)=>({card_id:newCard.id, label:f.label, value:f.value, field_type:f.field_type || "short", order_index:j+1}));
+      if(rows.length){
+        const { error: fErr } = await sb.from("zlk_fields").insert(rows);
+        if(fErr) throw fErr;
+      }
+    }
+    await sb.from("zlk_edit_logs").insert({
+      field_id:null, field_label_snapshot:"新建分类", card_title_snapshot:snap.name,
+      category_id:newCat.id, old_value:null, new_value:snap.name, action_type:actionType
+    });
+    return newCat;
+  }
+
+  async function deleteCategory(cat, section){
+    const nFields = cat.cards.reduce((n,c)=> n + c.fields.length, 0);
+    const detail = cat.cards.length ? `其中 ${cat.cards.length} 张卡片、${nFields} 个字段会一起删除。` : "";
+    if(!confirm(`确定删除分类「${cat.name}」吗？${detail}\n删除后可以在「修改记录」里回滚恢复。`)) return;
+    try{
+      await deleteCategoryWithLog(cat.id, "delete");
+    }catch(err){ console.error(err); showToast("删除失败"); return; }
+    STATE.categories = STATE.categories.filter(c=> c.id !== cat.id);
+    const link = sidebarEl.querySelector(`a[data-cat="cat-${cat.id}"]`);
+    await Promise.all([animateOut(section), animateOut(link)]);
+    showToast("已删除分类「" + cat.name + "」");
+    render();   // 重新编号目录
   }
 
   // ---------- 导出 PDF（用浏览器的打印功能“另存为 PDF”，文字可选中、中文不会乱码） ----------
@@ -1250,11 +1390,13 @@
     logDrawer.classList.add("open");
     logOverlay.classList.add("open");
     logList.innerHTML = "<div class='log-empty'>加载中…</div>";
-    const [logsRes, cardsRes, fieldsRes] = await Promise.all([
+    const [logsRes, cardsRes, fieldsRes, catsRes] = await Promise.all([
       sb.from("zlk_edit_logs").select("*").order("edited_at", {ascending:false}).limit(200),
       sb.from("zlk_cards").select("id"),
       sb.from("zlk_fields").select("id"),
+      sb.from("zlk_categories").select("id"),
     ]);
+    existingCatIds = new Set((catsRes.data||[]).map(c=>c.id));
     if(logsRes.error){ logList.innerHTML = "<div class='log-empty'>加载失败</div>"; return; }
     const data = logsRes.data;
     if(!data.length){ logList.innerHTML = "<div class='log-empty'>还没有修改记录</div>"; return; }
@@ -1263,6 +1405,7 @@
     logList.innerHTML = "";
     data.forEach(log => logList.appendChild(renderLogItem(log, existingCardIds, existingFieldIds)));
   }
+  let existingCatIds = new Set();
   function closeLogDrawer(){
     logDrawer.classList.remove("open");
     logOverlay.classList.remove("open");
@@ -1288,6 +1431,9 @@
     if(label === "删除卡片") return "CARD_DELETE";
     if(label === "新建卡片") return "CARD_CREATE";
     if(label === "卡片标题") return "CARD_TITLE_EDIT";
+    if(label === "删除分类") return "CAT_DELETE";
+    if(label === "新建分类") return "CAT_CREATE";
+    if(label === "分类名称") return "CAT_RENAME";
     if(log.old_value === null) return "FIELD_CREATE";
     if(log.new_value === null) return "FIELD_DELETE";
     return "FIELD_EDIT";
@@ -1311,7 +1457,14 @@
         return (log.card_id && existingCardIds.has(log.card_id))
           ? {ok:true} : {ok:false, reason:"所在卡片已被删除，无法回滚"};
       case "CARD_DELETE":
+        return (log.category_id && existingCatIds.has(log.category_id))
+          ? {ok:true} : {ok:false, reason:"所在分类已被删除，请先恢复分类"};
+      case "CAT_DELETE":
         return {ok:true};
+      case "CAT_CREATE":
+      case "CAT_RENAME":
+        return (log.category_id && existingCatIds.has(log.category_id))
+          ? {ok:true} : {ok:false, reason:"该分类已被删除，无法回滚"};
       default:
         return {ok:false, reason:null};
     }
@@ -1366,6 +1519,29 @@
         try{ fieldsSnapshot = JSON.parse(log.old_value || "[]"); }catch(e){}
         if(!confirm(`回滚将恢复卡片「${log.card_title_snapshot}」及其 ${fieldsSnapshot.length} 个字段，确定吗？`)) return;
         await restoreCardWithLog(log.category_id, log.card_title_snapshot, fieldsSnapshot, "rollback");
+      } else if(kind === "CAT_DELETE"){
+        let snap = null;
+        try{ snap = JSON.parse(log.old_value || "null"); }catch(e){}
+        if(!snap){ showToast("这条记录没有保存内容，无法恢复"); return; }
+        const n = (snap.cards||[]).length;
+        if(!confirm(`回滚将恢复分类「${snap.name}」及其 ${n} 张卡片，确定吗？`)) return;
+        await restoreCategoryWithLog(snap, "rollback");
+      } else if(kind === "CAT_CREATE"){
+        const { data: rows } = await sb.from("zlk_categories").select("*").eq("id", log.category_id).limit(1);
+        if(!rows || !rows.length){ showToast("该分类已被删除，无法回滚"); return; }
+        if(!confirm(`回滚将删除分类「${rows[0].name}」及其所有卡片，确定吗？`)) return;
+        await deleteCategoryWithLog(log.category_id, "rollback");
+      } else if(kind === "CAT_RENAME"){
+        const { data: rows } = await sb.from("zlk_categories").select("*").eq("id", log.category_id).limit(1);
+        if(!rows || !rows.length){ showToast("该分类已被删除，无法回滚"); return; }
+        if(!confirm("回滚到这个版本吗？")) return;
+        const cur = rows[0];
+        const { error } = await sb.from("zlk_categories").update({name: log.old_value}).eq("id", log.category_id);
+        if(error) throw error;
+        await sb.from("zlk_edit_logs").insert({
+          field_id:null, field_label_snapshot:"分类名称", card_title_snapshot: log.old_value,
+          category_id: log.category_id, old_value: cur.name, new_value: log.old_value, action_type:"rollback"
+        });
       } else {
         return;
       }
@@ -1383,6 +1559,11 @@
       let n = 0;
       try{ n = JSON.parse(log.old_value || "[]").length; }catch(e){}
       return el("div",{class:"lt-diff"}, `该卡片删除时包含 ${n} 个字段`);
+    }
+    if(kind === "CAT_DELETE"){
+      let n = 0;
+      try{ n = (JSON.parse(log.old_value || "{}").cards || []).length; }catch(e){}
+      return el("div",{class:"lt-diff"}, `该分类删除时包含 ${n} 张卡片`);
     }
     return el("div",{class:"lt-diff"},
       log.old_value ? el("span",{class:"lt-old"}, truncate(log.old_value)) : el("span",{},"（空）"),
