@@ -269,6 +269,13 @@
     flex:1;min-width:120px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;
   }
   .mini-form select{padding:8px 9px;border:1px solid var(--line);border-radius:9px;font-size:12.5px;}
+  .mini-form textarea{
+    flex:1 1 100%;min-width:0;min-height:84px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;
+    font-size:13px;line-height:1.55;font-family:inherit;color:var(--ink);background:#fff;outline:none;resize:vertical;
+    transition:border-color .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  .mini-form textarea:focus{border-color:var(--accent-line);box-shadow:0 0 0 4px var(--accent-bg);}
+  .mini-form .mf-actions{display:flex;gap:8px;margin-left:auto;}
   .mini-form .mf-btn{
     border:none;border-radius:9px;padding:8px 13px;font-size:12.5px;font-weight:600;
     transition:transform .12s var(--ease), opacity .15s var(--ease);
@@ -640,6 +647,22 @@
     return cardEl;
   }
 
+  function escapeHtml(t){ return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  // 带换行的内容同时写入纯文本和 HTML 两种格式：多行输入框取纯文本，富文本编辑器取 HTML（<br>），换行都不会丢
+  async function writeClipboard(text){
+    if(text.indexOf("\n") !== -1 && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+      try{
+        const html = "<div>" + text.split(/\r?\n/).map(escapeHtml).join("<br>") + "</div>";
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/plain": new Blob([text], {type:"text/plain"}),
+          "text/html": new Blob([html], {type:"text/html"})
+        })]);
+        return;
+      }catch(e){ /* 浏览器不允许就退回普通复制 */ }
+    }
+    await navigator.clipboard.writeText(text);
+  }
+
   function renderField(cat, card, field){
     const isLong = field.field_type === "long";
     const wrap = el("div",{class:"field" + (isLong ? " long" : ""), "data-field-id":field.id});
@@ -649,14 +672,15 @@
       if(STATE.editMode) return;
       const text = valueEl.textContent;
       if(!text) return;
-      navigator.clipboard.writeText(text).then(()=>{
+      writeClipboard(text).then(()=>{
         wrap.classList.add("copied");
         setTimeout(()=> wrap.classList.remove("copied"), 500);
         showToast("已复制「" + field.label + "」");
       }).catch(()=> showToast("复制失败，请手动选中"));
     });
 
-    const inputEl = isLong
+    const multiline = isLong || /[\r\n]/.test(field.value || "");
+    const inputEl = multiline
       ? el("textarea",{class:"f-input", rows:"3"})
       : el("input",{class:"f-input", type:"text"});
     inputEl.value = field.value || "";
@@ -858,20 +882,26 @@
       el("option",{value:"short"}, "短字段（同行显示）"),
       el("option",{value:"long"}, "长字段（独占一行）")
     );
-    const valueInput = el("input",{type:"text", placeholder:"内容（可留空后填）"});
+    const valueInput = el("textarea",{placeholder:"内容（可留空后填；可以换行，字数多会自动变高）", rows:"3"});
+    valueInput.addEventListener("input", ()=>{
+      valueInput.style.height = "auto";
+      valueInput.style.height = Math.max(84, valueInput.scrollHeight + 2) + "px";
+    });
     form.appendChild(labelInput);
     form.appendChild(typeSelect);
     form.appendChild(valueInput);
-    form.appendChild(el("button",{class:"mf-btn mf-save", onclick: async ()=>{
-      const label = labelInput.value.trim();
-      if(!label) return;
-      try{
-        await createFieldWithLog(card, label, valueInput.value, typeSelect.value, "create");
-        showToast("已添加字段");
-        loadAndRender();
-      }catch(err){ console.error(err); showToast("添加失败"); }
-    }}, "保存"));
-    form.appendChild(el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消"));
+    form.appendChild(el("div",{class:"mf-actions"},
+      el("button",{class:"mf-btn mf-save", onclick: async ()=>{
+        const label = labelInput.value.trim();
+        if(!label) return;
+        try{
+          await createFieldWithLog(card, label, valueInput.value, typeSelect.value, "create");
+          showToast("已添加字段");
+          loadAndRender();
+        }catch(err){ console.error(err); showToast("添加失败"); }
+      }}, "保存"),
+      el("button",{class:"mf-btn mf-cancel", onclick:()=> form.classList.remove("open")}, "取消")
+    ));
   }
 
   async function saveCardTitle(card, newTitle){
