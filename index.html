@@ -582,10 +582,18 @@
   // ---------- 配置 ----------
   const SUPABASE_URL = "https://xbmnadxitkzsofgizqew.supabase.co";
   const SUPABASE_KEY = "sb_publishable_QNCf-to238GBDK0-GbLxXg_6bOr9a8t";
-  const PASSWORD_HASH = "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92";
-  const LOCK_STORAGE_KEY = "zlk_unlocked";
+  // 数据库只认“暗号”：由访问密码算出来，读写时放在请求头里。
+  // 页面里不存密码，也不存密码的指纹；密码对不对，由数据库能不能读出数据来判断。
+  const TOKEN_STORAGE_KEY = "zlk_token";
+  const TOKEN_SALT = "zlk-access-v1:";
+  localStorage.removeItem("zlk_unlocked");   // 旧版的“已解锁”标记，已不再使用
 
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  let sb = null;
+  function makeClient(token){
+    return window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      global: { headers: { "x-zlk-token": token } }
+    });
+  }
 
   // ---------- 小工具 ----------
   function el(tag, attrs, ...children){
@@ -647,33 +655,49 @@
   const pwInput = document.getElementById("pwInput");
   const pwError = document.getElementById("pwError");
 
+  function lockError(msg){
+    pwError.textContent = msg;
+    const lc = document.querySelector(".lock-card");
+    lc.classList.remove("shake"); void lc.offsetWidth; lc.classList.add("shake");
+    pwInput.value = "";
+    pwInput.focus();
+  }
+
+  let unlocking = false;
   async function tryUnlock(pw){
-    const hash = await sha256Hex(pw);
-    if(hash === PASSWORD_HASH){
-      localStorage.setItem(LOCK_STORAGE_KEY, "1");
+    if(!pw || unlocking) return;
+    unlocking = true;
+    pwError.textContent = "验证中…";
+    try{
+      const token = await sha256Hex(TOKEN_SALT + pw);
+      const client = makeClient(token);
+      const { data, error } = await client.from("zlk_categories").select("id").limit(1);
+      if(error){ lockError("连不上数据库，请检查网络后再试"); return; }
+      if(!data || !data.length){ lockError("密码不对，再试试"); return; }
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      sb = client;
+      pwError.textContent = "";
       lockScreen.classList.add("hidden");
       app.classList.add("visible");
       boot();
-    } else {
-      pwError.textContent = "密码不对，再试试";
-      const lc = document.querySelector(".lock-card");
-      lc.classList.remove("shake"); void lc.offsetWidth; lc.classList.add("shake");
-      pwInput.value = "";
-      pwInput.focus();
-    }
+    }finally{ unlocking = false; }
   }
   document.getElementById("pwSubmit").addEventListener("click", ()=> tryUnlock(pwInput.value));
   pwInput.addEventListener("keydown", e=>{ if(e.key === "Enter") tryUnlock(pwInput.value); });
   document.getElementById("lockBtn").addEventListener("click", ()=>{
-    localStorage.removeItem(LOCK_STORAGE_KEY);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
     location.reload();
   });
 
-  if(localStorage.getItem(LOCK_STORAGE_KEY) === "1"){
-    lockScreen.classList.add("hidden");
-    app.classList.add("visible");
-    boot();
+  // 暗号失效（比如改了密码）：回到密码页
+  function relock(msg){
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    app.classList.remove("visible");
+    lockScreen.classList.remove("hidden");
+    pwError.textContent = msg || "";
+    pwInput.focus();
   }
+
 
   // ---------- 数据状态 ----------
   let STATE = { categories: [], editMode: false };
@@ -690,6 +714,7 @@
       showToast("加载失败，请检查网络后点右上角刷新");
       return null;
     }
+    if(!catsRes.data.length){ relock("密码已更改或已失效，请重新输入"); return null; }
     const cards = cardsRes.data.map(c => ({...c, fields: fieldsRes.data.filter(f=>f.card_id===c.id)}));
     const cats = catsRes.data.map(cat => ({...cat, cards: cards.filter(c=>c.category_id===cat.id)}));
     return cats;
@@ -703,8 +728,11 @@
     }
   }
 
+  let booted = false;
   function boot(){
     loadAndRender();
+    if(booted) return;
+    booted = true;
     document.addEventListener("visibilitychange", ()=>{
       if(document.visibilityState === "visible") loadAndRender();
     });
@@ -1709,6 +1737,14 @@
     return s.length > 40 ? s.slice(0,40) + "…" : s;
   }
 
+  // 这台电脑上输对过密码：直接进入（放在最后，等上面的函数和变量都准备好）
+  const savedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+  if(savedToken){
+    sb = makeClient(savedToken);
+    lockScreen.classList.add("hidden");
+    app.classList.add("visible");
+    boot();
+  }
 })();
 </script>
 </body>
